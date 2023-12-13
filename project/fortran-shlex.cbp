@@ -31,7 +31,15 @@
 		<Compiler>
 			<Add option="-Wall" />
 		</Compiler>
-		<Unit filename="main.f90" />
+		<Linker>
+			<Add library="gfortran" />
+		</Linker>
+		<Unit filename="../src/shlex_module.f90">
+			<Option weight="0" />
+		</Unit>
+		<Unit filename="../test/shlex_test.f90">
+			<Option weight="1" />
+		</Unit>
 		<Extensions>
 			<lib_finder disable_auto="1" />
 		</Extensions>
