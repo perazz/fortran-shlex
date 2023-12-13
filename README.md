@@ -7,7 +7,7 @@ Just copy and paste `shlex_module.f90` into your project. Alternatively, `fortra
 
 ```
 [dependencies]
-shlex = { git="https://github.com/perazz/fortran-shlex.git" }
+fortran-shlex = { git="https://github.com/perazz/fortran-shlex.git" }
 ```
   
 ## Usage
