@@ -1,3 +1,18 @@
+! *************************************************************************************************
+!                                   _____ __  ____    _______  __
+!                                  / ___// / / / /   / ____/ |/ /
+!                                  \__ \/ /_/ / /   / __/  |   /
+!                                 ___/ / __  / /___/ /___ /   |
+!                                /____/_/ /_/_____/_____//_/|_|
+!
+! MIT License
+!
+! (C) Federico Perini, 2023
+!     A Fortran port of the Python standard library shlex module.
+!
+!     https://github.com/perazz/fortran-shlex
+!
+! *************************************************************************************************
 program shlex_tests
     use shlex_module
     use iso_fortran_env, only: output_unit

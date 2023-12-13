@@ -1,18 +1,16 @@
 ! *************************************************************************************************
-!                                    ____  ___________________  __
-!                                   / __ \/ ____/ ____/ ____/ |/ /
-!                                  / /_/ / __/ / / __/ __/  |   /
-!                                 / _, _/ /___/ /_/ / /___ /   |
-!                                /_/ |_/_____/\____/_____//_/|_|
+!                                   _____ __  ____    _______  __
+!                                  / ___// / / / /   / ____/ |/ /
+!                                  \__ \/ /_/ / /   / __/  |   /
+!                                 ___/ / __  / /___/ /___ /   |
+!                                /____/_/ /_/_____/_____//_/|_|
 !
 ! MIT License
 !
 ! (C) Federico Perini, 2023
 !     A Fortran port of the Python standard library shlex module.
 !
-!     https://github.com/kokke/tiny-regex-c
-!     Code inspired by Rob Pike's regex code described in:
-!     http://www.cs.princeton.edu/courses/archive/spr09/cos333/beautiful.html
+!     https://github.com/perazz/fortran-shlex
 !
 ! *************************************************************************************************
 module shlex_module
