@@ -1,5 +1,5 @@
 # fortran-shlex
-Modern Fortran port of Python's shlex shell-like lexer. This package implements the simple shlex lexer, inspired by the Python shlex module, and based on the Golang implementation. The interface comes with two 
+Modern Fortran port of Python's shlex shell-like lexer. This package implements the simple shlex lexer, inspired by the Python shlex module, and based on the Golang implementation. The interface comes with two functions, `split` which parses a command-like string and returns an array of allocatable character strings; and `shlex` that perform the same, but return a list of `type(shlex_token)` tokens. Error control is optional, via a boolean `success` keyword or a token that may return an error string.
 
 ## Install
 
