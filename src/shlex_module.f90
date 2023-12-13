@@ -24,8 +24,17 @@ module shlex_module
 
     ! Shlex: return tokens
     public :: shlex
+    interface shlex
+        module procedure shlex_bool
+        module procedure shlex_error
+    end interface
+
     ! Split: return split strings
     public :: split
+    interface split
+        module procedure split_bool
+        module procedure split_error
+    end interface
 
     ! Turn on verbosity for debugging
     logical, parameter :: DEBUG = .false.
@@ -129,17 +138,29 @@ module shlex_module
 
     end function CHAR_TYPE
 
-    ! High level interface: return a list of strings
-    function split(pattern,success) result(list)
+    ! High level interface: return a list of strings, with error type
+    function split_bool(pattern,success) result(list)
         character(*),      intent(in)  :: pattern
         logical, optional, intent(out) :: success
+        character(kind=SCK,len=:), allocatable :: list(:)
+        type(shlex_token) :: error
+
+        list = split_error(pattern,error)
+        if (present(success)) success = error%type==NO_ERROR
+
+    end function split_bool
+
+    ! High level interface: return a list of strings
+    function split_error(pattern,error) result(list)
+        character(*),      intent(in)  :: pattern
+        type(shlex_token), intent(out) :: error
         character(kind=SCK,len=:), allocatable :: list(:)
 
         type(shlex_token), allocatable :: tokens(:)
 
         integer :: n,maxlen,i,l
 
-        tokens = shlex(pattern,success)
+        tokens = shlex(pattern,error)
 
         n      = size(tokens)
         maxlen = 0
@@ -152,16 +173,27 @@ module shlex_module
             list(i) = tokens(i)%string
         end do
 
-    end function split
+    end function split_error
 
     ! High level interface: return a list of tokens
-    function shlex(pattern,success) result(list)
+    function shlex_bool(pattern,success) result(list)
         character(*),      intent(in)  :: pattern
         logical, optional, intent(out) :: success
         type(shlex_token), allocatable :: list(:)
+        type(shlex_token) :: error
+
+        list = shlex_error(pattern,error)
+        if (present(success)) success = error%type==NO_ERROR
+    end function shlex_bool
+
+    ! High level interface: return a list of tokens
+    function shlex_error(pattern,error) result(list)
+        character(*),      intent(in)  :: pattern
+        type(shlex_token), intent(out) :: error
+        type(shlex_token), allocatable :: list(:)
 
         type(shlex_lexer) :: s
-        type(shlex_token) :: next,error
+        type(shlex_token) :: next
 
         ! Initialize lexer
         call s%new(pattern)
@@ -186,12 +218,9 @@ module shlex_module
 
         end do
 
-        if (present(success)) success = error%type==NO_ERROR
         return
 
-    end function shlex
-
-    !
+    end function shlex_error
 
     type(shlex_token) function scan_stream(this,pattern,error) result(token)
         class(shlex_lexer), intent(inout) :: this
@@ -291,8 +320,6 @@ module shlex_module
               ! Inside escaping double quotes
               case (STATE_ESCAPING_QUOTED)
 
-                print *, 'inside escaping quoted = ',next_char
-
                    select case (next_type)
                       case (CHAR_EOF)
                          ! Error: EOF when expecting closing quote
@@ -303,13 +330,10 @@ module shlex_module
                          ! go back to quoting excping
                          state = STATE_QUOTING_ESCAPING
                          value = value//next_char
-                         print *, 'value=',value
                    end select
 
               ! Inside escaping double quotes
               case (STATE_QUOTING_ESCAPING)
-
-                   print *, 'inside escaping, char = ',next_char
 
                    select case (next_type)
                       case (CHAR_EOF)
@@ -323,7 +347,6 @@ module shlex_module
                          state = STATE_ESCAPING_QUOTED
                       case default
                          value = value//next_char
-                         print *, 'value = ',value
                    end select
 
               ! Inside non-escaping single quotes
@@ -363,7 +386,6 @@ module shlex_module
 
               ! Invalid state
               case default
-                 print *, 'STATE=',state
                  error = new_token(SYNTAX_ERROR,"Internal error: invalid state at [["//pattern(1:this%input_position)//']]')
                  call destroy_token(token)
                  return

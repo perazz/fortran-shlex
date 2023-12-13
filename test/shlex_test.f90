@@ -64,8 +64,6 @@ program shlex_tests
        integer :: i
        type(shlex_token), allocatable :: tokens(:)
 
-       print *, string
-
        tokens = shlex(string,success)
        if (.not.success) return
        success = size(tokens)==size(results)
@@ -86,7 +84,6 @@ program shlex_tests
        integer :: i
        character(len=:), allocatable :: tokens(:)
 
-       print *, string
        tokens = split(string,success)
        if (.not.success) return
        success = size(tokens)==size(results)
@@ -138,10 +135,8 @@ program shlex_tests
        character(len=:), allocatable :: tokens(:)
 
        tokens = split(string,success)
-       print *, 'succ',success
        if (.not.success) return
        success = size(tokens)==size(results)
-       print *, 'siz',size(tokens),size(results)
        do i=1,size(tokens)
           success = tokens(i)==trim(results(i))
           if (.not.success) print *, 'token=',tokens(i),' expected=',results(i)
