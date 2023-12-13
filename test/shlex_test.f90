@@ -14,6 +14,8 @@ program shlex_tests
     call add_test(test_2())
     call add_test(test_3())
     call add_test(test_4())
+    call add_test(test_5())
+
 
     if (nfailed<=0) then
         print "(*(a,:,i0))", 'SUCCESS! all ',npassed,' tests passed.'
@@ -47,44 +49,52 @@ program shlex_tests
        tokens = shlex(string,success); if (.not.success) return
        success = size(tokens)==size(results); if (.not.success) return
        do i=1,size(tokens)
-          if (.not.tokens(i)%string==trim(results(i))) return
+          success = tokens(i)%string==trim(results(i))
+          if (.not.success) return
        end do
-       success = .true.
     end function test_1
 
     logical function test_2() result(success)
 
        character(*), parameter :: string     = &
        'one two "three four" "five \"six\"" seven#eight # nine # ten'//new_line('a')//' eleven ''twelve\\'' thirteen=13 fourteen/14'
-       character(*), parameter :: results(*) = [character(13) :: 'one','two','three four','five \"six\"','seven#eight', &
-                                                '" nine # ten"','eleven','twelve\\','thirteen=13','fourteen/14']
+       character(*), parameter :: results(*) = [character(13) :: 'one','two','three four','five "six"','seven#eight', &
+                                                ' nine # ten','eleven','twelve\\','thirteen=13','fourteen/14']
 
        integer :: i
        type(shlex_token), allocatable :: tokens(:)
+
+       print *, string
 
        tokens = shlex(string,success)
        if (.not.success) return
        success = size(tokens)==size(results)
        do i=1,size(tokens)
-          if (.not.tokens(i)%string==trim(results(i))) return
+          success = tokens(i)%string==trim(results(i))
+          if (.not.success) print *, 'token=',tokens(i)%string,' expected=',results(i)
+          if (.not.success) return
        end do
-       success = .true.
     end function test_2
 
     logical function test_3() result(success)
 
        character(*), parameter :: string     = &
        'one two "three four" "five \"six\"" seven#eight # nine # ten'//new_line('a')//' eleven ''twelve\\'' thirteen=13 fourteen/14'
-       character(*), parameter :: results(*) = [character(13) :: 'one','two','three four','five \"six\"','seven#eight', &
-                                                '" nine # ten"','eleven','twelve\\','thirteen=13','fourteen/14']
+       character(*), parameter :: results(*) = [character(13) :: 'one','two','three four','five "six"','seven#eight', &
+                                                ' nine # ten','eleven','twelve\\','thirteen=13','fourteen/14']
 
        integer :: i
        character(len=:), allocatable :: tokens(:)
 
+       print *, string
        tokens = split(string,success)
        if (.not.success) return
        success = size(tokens)==size(results)
-       success = .true.
+       do i=1,size(tokens)
+          success = tokens(i)==trim(results(i))
+          if (.not.success) print *, 'token=',tokens(i),' expected=',results(i)
+          if (.not.success) return
+       end do
     end function test_3
 
     logical function test_4() result(success)
@@ -100,10 +110,44 @@ program shlex_tests
        tokens = split(string,success)
        if (.not.success) return
        success = size(tokens)==size(results)
-       success = .true.
+       do i=1,size(tokens)
+          success = tokens(i)==trim(results(i))
+          if (.not.success) print *, 'token=',tokens(i),' expected=',results(i)
+          if (.not.success) return
+       end do
     end function test_4
 
 
+
+
+    logical function test_5() result(success)
+
+       character(*), parameter :: string     = &
+       'gfortran -I/opt/homebrew/Cellar/open-mpi/4.1.5/include -Wl,-flat_namespace -Wl,-commons,use_dylibs '&
+       //'-I/opt/homebrew/Cellar/open-mpi/4.1.5/lib -L/opt/homebrew/Cellar/open-mpi/4.1.5/lib -L/opt/homebrew'&
+       //'/opt/libevent/lib -lmpi_usempif08 -lmpi_usempi_ignore_tkr -lmpi_mpifh -lmpi'
+       character(*), parameter :: results(*) = &
+       [character(45) :: 'gfortran', '-I/opt/homebrew/Cellar/open-mpi/4.1.5/include', &
+                         '-Wl,-flat_namespace', '-Wl,-commons,use_dylibs', &
+                         '-I/opt/homebrew/Cellar/open-mpi/4.1.5/lib', &
+                         '-L/opt/homebrew/Cellar/open-mpi/4.1.5/lib', &
+                         '-L/opt/homebrew/opt/libevent/lib', &
+                         '-lmpi_usempif08', '-lmpi_usempi_ignore_tkr','-lmpi_mpifh','-lmpi']
+
+       integer :: i
+       character(len=:), allocatable :: tokens(:)
+
+       tokens = split(string,success)
+       print *, 'succ',success
+       if (.not.success) return
+       success = size(tokens)==size(results)
+       print *, 'siz',size(tokens),size(results)
+       do i=1,size(tokens)
+          success = tokens(i)==trim(results(i))
+          if (.not.success) print *, 'token=',tokens(i),' expected=',results(i)
+          if (.not.success) return
+       end do
+    end function test_5
 
 
 end program shlex_tests

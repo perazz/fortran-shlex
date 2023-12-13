@@ -291,6 +291,8 @@ module shlex_module
               ! Inside escaping double quotes
               case (STATE_ESCAPING_QUOTED)
 
+                print *, 'inside escaping quoted = ',next_char
+
                    select case (next_type)
                       case (CHAR_EOF)
                          ! Error: EOF when expecting closing quote
@@ -298,12 +300,16 @@ module shlex_module
                          token = new_token(token_type,value)
                          return
                       case default
+                         ! go back to quoting excping
                          state = STATE_QUOTING_ESCAPING
                          value = value//next_char
+                         print *, 'value=',value
                    end select
 
               ! Inside escaping double quotes
               case (STATE_QUOTING_ESCAPING)
+
+                   print *, 'inside escaping, char = ',next_char
 
                    select case (next_type)
                       case (CHAR_EOF)
@@ -317,6 +323,7 @@ module shlex_module
                          state = STATE_ESCAPING_QUOTED
                       case default
                          value = value//next_char
+                         print *, 'value = ',value
                    end select
 
               ! Inside non-escaping single quotes
