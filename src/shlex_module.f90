@@ -24,7 +24,7 @@ module shlex_module
     public :: shlex
     interface shlex
         module procedure shlex_bool
-        module procedure shlex_error
+        module procedure shlex_error        
     end interface
 
     ! Split: return split strings
@@ -32,6 +32,8 @@ module shlex_module
     interface split
         module procedure split_bool
         module procedure split_error
+        module procedure split_joined_bool
+        module procedure split_joined_error
     end interface
 
     ! Turn on verbosity for debugging
@@ -172,6 +174,77 @@ module shlex_module
         end do
 
     end function split_error
+
+    ! High level interface: also join spaced flags like -I /path -> -I/path
+    function split_joined_bool(pattern, join_spaced, success) result(list)
+        character(*),      intent(in)   :: pattern
+        logical,           intent(in)   :: join_spaced
+        logical,           intent(out)  :: success
+        character(kind=SCK,len=:), allocatable :: list(:)
+        type(shlex_token) :: error
+
+        list = split_joined_error(pattern, join_spaced, error)
+        success = error%type==NO_ERROR        
+        
+    end function split_joined_bool
+
+    ! High level interface: also join spaced flags like -I /path -> -I/path
+    function split_joined_error(pattern, join_spaced, error) result(list)
+        character(*),      intent(in)  :: pattern
+        type(shlex_token), intent(out) :: error
+        logical,           intent(in)  :: join_spaced
+        character(kind=SCK,len=:), allocatable :: list(:)
+
+        character(kind=SCK, len=:), allocatable :: raw(:)
+        integer :: i, n, count
+        character(kind=SCK, len=:), allocatable :: tok, next_tok
+
+        raw = split(pattern,error)
+
+        if (error%type/=NO_ERROR .or. .not. join_spaced) then
+            
+            call move_alloc(from=raw,to=list)
+            return
+            
+        else
+            
+            n = size(raw)
+            
+            allocate(character(kind=SCK,len=len(raw(1))) :: list(n))
+            count = 0
+            i = 1
+
+            do while (i <= n)
+                tok = raw(i)
+
+                if (len(tok) == 2 .and. &
+                    tok(1:1) == '-' .and. &
+                    (tok(2:2) >= 'A' .and. tok(2:2) <= 'Z' .or. tok(2:2) >= 'a' .and. tok(2:2) <= 'z')) then
+                    if (i + 1 <= n) then
+                        next_tok = raw(i + 1)
+                        if (.not. (len(next_tok) >= 1 .and. next_tok(1:1) == '-')) then
+                            count = count + 1
+                            list(count) = tok // next_tok
+                            i = i + 2
+                            cycle
+                        end if
+                    end if
+                end if
+
+                count = count + 1
+                list(count) = tok
+                i = i + 1
+            end do
+
+            if (count < size(list)) then
+                call move_alloc(from=list, to=raw)
+                allocate(character(kind=SCK, len=len(raw(1))) :: list(count))
+                list(:) = raw(:count)
+            end if            
+            
+        end if
+
+    end function split_joined_error
 
     ! High level interface: return a list of tokens
     function shlex_bool(pattern,success) result(list)
