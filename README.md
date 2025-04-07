@@ -33,7 +33,6 @@ tokens = split('whatever ',success=success)
 ! With complete error flag
 tokens = split('whatever ',error)
 print *, 'error message=',error%string
-
 ```
 
 And the `shlex` function has the same API, but returns a list of `type(shlex_token)`s instead of an allocatable character array. 
@@ -55,8 +54,24 @@ tokens = shlex('whatever ',success=success)
 tokens = shlex('whatever ',error)
 print *, 'error message=',error%string
 
+---
+
+## Version 1.1.0 - `join_spaced` to combine spaced compiler flags
+
+Starting with version **1.1.0**, a new high-level interface is available:
+
+```fortran
+tokens = split_joined_bool('gfortran -I /include -L /lib -lm', join_spaced=.true., success=success)
 ```
 
+When the second argument (`join_spaced`) is `.true.`, `split_joined_bool()` will:
+- combine spaced flags like `-I /path` into `-I/path`
+- work for any single-letter flags (e.g., `-I`, `-L`, `-D`) if the next token does *not* begin with `-`
+- still respect quotes and shell-like rules for escaping
+
+This is useful for parsing compiler and linker flags where `-I`, `-L`, etc. may be followed by a separate token due to quoting or formatting.
+
+---
 
 ## License
 

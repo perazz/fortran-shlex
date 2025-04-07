@@ -21,15 +21,14 @@ program shlex_tests
     integer :: nfailed = 0
     integer :: npassed = 0
 
-    integer :: i,length
-    logical :: valid
-    character(len=30) :: pattern,str
-
     call add_test(test_1())
     call add_test(test_2())
     call add_test(test_3())
     call add_test(test_4())
     call add_test(test_5())
+    call add_test(test_joined_1())
+    call add_test(test_joined_2())
+    call add_test(test_joined_3())
 
 
     if (nfailed<=0) then
@@ -129,9 +128,6 @@ program shlex_tests
        end do
     end function test_4
 
-
-
-
     logical function test_5() result(success)
 
        character(*), parameter :: string     = &
@@ -158,6 +154,73 @@ program shlex_tests
           if (.not.success) return
        end do
     end function test_5
+
+    ! fpm case input
+    logical function test_joined_1() result(success)
+
+        character(*), parameter :: string = &
+        '-I/path/to/include -I /test -I"/path/to/include with spaces" -I "spaces here too" -L/path/to/lib -lmylib -O2 -g -Wall'
+
+        character(*), parameter :: results(*) = [character(40) :: &
+            '-I/path/to/include', '-I/test', '-I/path/to/include with spaces', '-Ispaces here too', &
+            '-L/path/to/lib', '-lmylib', '-O2', '-g', '-Wall']
+
+        integer :: i
+        character(len=:), allocatable :: tokens(:)
+
+        tokens = split(string, join_spaced=.true., success=success)
+        if (.not.success) return
+        success = size(tokens) == size(results)
+
+        do i = 1, size(tokens)
+            success = tokens(i) == trim(results(i))
+            if (.not.success) print *, 'token=', tokens(i), ' expected=', results(i)
+            if (.not.success) return
+        end do
+
+    end function test_joined_1
+
+    ! mixed spacing, no quoted flags
+    logical function test_joined_2() result(success)
+
+        character(*), parameter :: string = '-I include -L lib -O3 -Wall -lm'
+        character(*), parameter :: results(*) = [character(10) :: '-Iinclude', '-Llib', '-O3', '-Wall', '-lm']
+
+        integer :: i
+        character(len=:), allocatable :: tokens(:)
+
+        tokens = split(string, .true., success)
+        if (.not.success) return
+        success = size(tokens) == size(results)
+
+        do i = 1, size(tokens)
+            success = tokens(i) == trim(results(i))
+            if (.not.success) print *, 'token=', tokens(i), ' expected=', results(i)
+            if (.not.success) return
+        end do
+
+    end function test_joined_2
+
+    ! ensure flags with attached args are left untouched
+    logical function test_joined_3() result(success)
+
+        character(*), parameter :: string = '-I/path -I /spaced -DMACRO=1 -lfoo'
+        character(*), parameter :: results(*) = [character(20) :: '-I/path', '-I/spaced', '-DMACRO=1', '-lfoo']
+
+        integer :: i
+        character(len=:), allocatable :: tokens(:)
+
+        tokens = split(string, .true., success)
+        if (.not.success) return
+        success = size(tokens) == size(results)
+
+        do i = 1, size(tokens)
+            success = tokens(i) == trim(results(i))
+            if (.not.success) print *, 'token=', tokens(i), ' expected=', results(i)
+            if (.not.success) return
+        end do
+
+    end function test_joined_3
 
 
 end program shlex_tests
