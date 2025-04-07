@@ -37,7 +37,7 @@ module shlex_module
     end interface
 
     ! Turn on verbosity for debugging
-    logical, parameter :: DEBUG = .false.
+    logical, parameter :: DEBUG = .true.
 
     ! Character types
     integer, parameter :: CHAR_UNKNOWN           = 0
@@ -67,16 +67,18 @@ module shlex_module
     character(kind=SCK,len=*), parameter :: COMMENT_CHARS = "#"
 
     ! Token types
-    integer, parameter :: TOKEN_UNKNOWN = 0
-    integer, parameter :: TOKEN_WORD    = 1
-    integer, parameter :: TOKEN_SPACE   = 2
-    integer, parameter :: TOKEN_COMMENT = 3
+    integer, parameter :: TOKEN_UNKNOWN         = 0
+    integer, parameter :: TOKEN_WORD            = 1    
+    integer, parameter :: TOKEN_SPACE           = 2
+    integer, parameter :: TOKEN_COMMENT         = 3
+    integer, parameter :: TOKEN_QUOTED_WORD     = 4 ! Words in non-escaping quotes
+    integer, parameter :: TOKEN_ESC_QUOTED_WORD = 5 ! Words in escaping quotes
 
     ! Lexer state
     integer, parameter :: STATE_START            = 0 ! No characters read yet
     integer, parameter :: STATE_INWORD           = 1 ! Processing characters in a word
     integer, parameter :: STATE_ESCAPING         = 2 ! Just found an escape character: next has to be literal
-    integer, parameter :: STATE_ESCAPING_QUOTED  = 3 ! Just found an e2cape character within a quoted string
+    integer, parameter :: STATE_ESCAPING_QUOTED  = 3 ! Just found an escape character within a quoted string
     integer, parameter :: STATE_QUOTING_ESCAPING = 4 ! Within a quoted string that supports escaping ("...")
     integer, parameter :: STATE_QUOTING          = 5 ! Within a quoted string that does not support escaping ('...')
     integer, parameter :: STATE_COMMENT          = 6 ! Within a comment
@@ -85,6 +87,10 @@ module shlex_module
 
         integer :: type = TOKEN_UNKNOWN
         character(kind=SCK,len=:), allocatable :: string
+        
+        contains
+        
+           procedure :: print => print_token
 
     end type shlex_token
 
@@ -94,6 +100,9 @@ module shlex_module
         ! The input string
         integer :: input_position = 0
         integer :: input_length   = -1
+        
+        ! Settings
+        logical :: keep_quotes = .false.
 
         contains
 
@@ -179,36 +188,38 @@ module shlex_module
 
         allocate(character(kind=SCK,len=maxlen) :: list(n))
         do i=1,n
-            list(i) = tokens(i)%string
+            list(i) = tokens(i)%print()
         end do        
         
     end subroutine tokens_to_strings
 
     ! High level interface: also join spaced flags like -I /path -> -I/path
-    function split_joined_bool(pattern, join_spaced, success) result(list)
-        character(*),      intent(in)   :: pattern
-        logical,           intent(in)   :: join_spaced
-        logical,           intent(out)  :: success
+    function split_joined_bool(pattern, join_spaced, keep_quotes, success) result(list)
+        character(*),      intent(in)    :: pattern
+        logical,           intent(in)    :: join_spaced
+        logical,  optional, intent(in)   :: keep_quotes
+        logical,           intent(out)   :: success
         character(kind=SCK,len=:), allocatable :: list(:)
         type(shlex_token) :: error
 
-        list = split_joined_error(pattern, join_spaced, error)
+        list = split_joined_error(pattern, join_spaced, keep_quotes, error)
         success = error%type==NO_ERROR        
         
     end function split_joined_bool
 
     ! High level interface: also join spaced flags like -I /path -> -I/path
-    function split_joined_error(pattern, join_spaced, error) result(list)
+    function split_joined_error(pattern, join_spaced, keep_quotes, error) result(list)
         character(*),      intent(in)  :: pattern
         type(shlex_token), intent(out) :: error
         logical,           intent(in)  :: join_spaced
+        logical, optional, intent(in)  :: keep_quotes
         character(kind=SCK,len=:), allocatable :: list(:)
 
         integer :: i, n, count
         type(shlex_token) :: tok, next_tok
         type(shlex_token), allocatable :: raw(:),joined(:)
 
-        raw = shlex(pattern,error)
+        raw = shlex(pattern,error,keep_quotes)
 
         if (error%type/=NO_ERROR .or. .not. join_spaced) then
             
@@ -233,7 +244,7 @@ module shlex_module
                             next_tok = raw(i + 1)
                             if (.not. (len_trim(next_tok%string) >= 1 .and. next_tok%string(1:1) == '-')) then
                                 count = count + 1
-                                joined(count) = shlex_token(TOKEN_WORD,trim(tok%string)//trim(next_tok%string))
+                                joined(count) = join_tokens(tok,next_tok)
                                 i = i + 2
                                 cycle old_tokens
                             end if
@@ -248,33 +259,50 @@ module shlex_module
             end do old_tokens
             
             call tokens_to_strings(joined(:count),list)
-
         end if
 
     end function split_joined_error
+    
+    ! Join two tokens
+    elemental type(shlex_token) function join_tokens(a,b) result(join)
+        type(shlex_token), intent(in) :: a,b
+        
+        if (any(a%type==[TOKEN_UNKNOWN,TOKEN_SPACE,TOKEN_COMMENT])) then 
+            join = b
+        elseif (any(b%type==[TOKEN_UNKNOWN,TOKEN_SPACE,TOKEN_COMMENT])) then 
+            join = a
+        else
+            ! The quoting is certainly lost
+            join%string = a%print()//b%print()
+            join%type   = max(a%type,b%type)
+        end if
+        
+    end function join_tokens
 
     ! High level interface: return a list of tokens
-    function shlex_bool(pattern,success) result(list)
+    function shlex_bool(pattern,success,keep_quotes) result(list)
         character(*),      intent(in)  :: pattern
         logical, optional, intent(out) :: success
+        logical, optional, intent(in)  :: keep_quotes
         type(shlex_token), allocatable :: list(:)
         type(shlex_token) :: error
 
-        list = shlex_error(pattern,error)
+        list = shlex_error(pattern,error,keep_quotes)
         if (present(success)) success = error%type==NO_ERROR
     end function shlex_bool
 
     ! High level interface: return a list of tokens
-    function shlex_error(pattern,error) result(list)
+    function shlex_error(pattern,error,keep_quotes) result(list)
         character(*),      intent(in)  :: pattern
         type(shlex_token), intent(out) :: error
+        logical, optional, intent(in)  :: keep_quotes
         type(shlex_token), allocatable :: list(:)
 
         type(shlex_lexer) :: s
         type(shlex_token) :: next
 
         ! Initialize lexer
-        call s%new(pattern)
+        call s%new(pattern,keep_quotes)
 
         allocate(list(0))
         error = new_token(NO_ERROR,"SUCCESS")
@@ -347,11 +375,13 @@ module shlex_module
                       case (CHAR_SPACE)
                          ! do nothing
                       case (CHAR_ESCAPING_QUOTE)
-                         token_type = TOKEN_WORD
+                         token_type = TOKEN_ESC_QUOTED_WORD
                          state      = STATE_QUOTING_ESCAPING
+                         if (this%keep_quotes) value = value//next_char
                       case (CHAR_NONESCAPING_QUOTE)
-                         token_type = TOKEN_WORD
+                         token_type = TOKEN_QUOTED_WORD
                          state      = STATE_QUOTING
+                         if (this%keep_quotes) value = value//next_char
                       case (CHAR_ESCAPE)
                          token_type = TOKEN_WORD
                          state      = STATE_ESCAPING
@@ -363,7 +393,7 @@ module shlex_module
                          state      = STATE_INWORD
                          value      = value//next_char
                    end select
-
+                   
               ! Into a regular word
               case (STATE_INWORD)
 
@@ -373,8 +403,10 @@ module shlex_module
                          return
                       case (CHAR_ESCAPING_QUOTE)
                          state = STATE_QUOTING_ESCAPING
+                         if (this%keep_quotes) value = value//next_char
                       case (CHAR_NONESCAPING_QUOTE)
                          state = STATE_QUOTING
+                         if (this%keep_quotes) value = value//next_char
                       case (CHAR_ESCAPE)
                          state = STATE_ESCAPING
                       case default
@@ -421,8 +453,10 @@ module shlex_module
                          return
                       case (CHAR_ESCAPING_QUOTE)
                          state = STATE_INWORD
+                         if (this%keep_quotes) value = value//next_char
                       case (CHAR_ESCAPE)
                          state = STATE_ESCAPING_QUOTED
+                         if (this%keep_quotes) value = value//next_char
                       case default
                          value = value//next_char
                    end select
@@ -438,6 +472,7 @@ module shlex_module
                          return
                       case (CHAR_NONESCAPING_QUOTE)
                          state = STATE_INWORD
+                         if (this%keep_quotes) value = value//next_char
                       case default
                          value = value//next_char
                    end select
@@ -479,36 +514,30 @@ module shlex_module
 
        this%input_length   = -1
        this%input_position = 0
+       this%keep_quotes    = .false.
 
     end subroutine destroy
 
     ! Initialize lexer
-    pure subroutine new(this,pattern)
+    pure subroutine new(this,pattern,keep_quotes)
        class(shlex_lexer), intent(inout) :: this
        character(kind=SCK, len=*), intent(in) :: pattern
-
+       logical, optional, intent(in) :: keep_quotes
+ 
        call this%destroy()
 
        this%input_position = 0
        this%input_length = len(pattern)
+       if (present(keep_quotes)) this%keep_quotes = keep_quotes
 
     end subroutine new
 
-    function print_token(token) result(msg)
+    pure function print_token(token) result(msg)
         class(shlex_token), intent(in) :: token
         character(:,kind=SCK), allocatable :: msg
 
-        character(len=MAX_CHAR_CLASS_LEN,kind=SCK) :: buffer
-        integer :: lt
-
-        write(buffer,1) token%type,trim(token%string)
-
-        lt = len_trim(buffer)
-        allocate(character(len=lt,kind=SCK) :: msg)
-        if (lt>0) msg(1:lt) = buffer(1:lt)
-
-        1 format('type=',i0,:,1x,'char=',a)
-
+        msg = trim(token%string)
+        
     end function print_token
 
 end module shlex_module

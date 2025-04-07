@@ -72,6 +72,44 @@ When the second argument (`join_spaced`) is `.true.`, `split_joined_bool()` will
 
 This is useful for parsing compiler and linker flags where `-I`, `-L`, etc. may be followed by a separate token due to quoting or formatting.
 
+Here's the updated section for your `README.md` to document the new `keep_quotes` functionality, starting from **version 1.1.0**.
+
+---
+
+### 🆕 Version 1.2.0 – Preserve enclosing quotes with `keep_quotes`
+
+Starting with version **1.2.0**, you can enable optional preservation of quotes around quoted strings using the `keep_quotes` flag.
+
+```fortran
+tokens = split('plain "with spaces" ''and single''', join_spaced=.false., keep_quotes=.true., success=ok)
+```
+
+This returns:
+```fortran
+["plain", "\"with spaces\"", "'and single'"]
+```
+
+#### Works with:
+- Escaping quotes (`"double quoted"`)
+- Non-escaping quotes (`'single quoted'`)
+- Both `split` and `shlex` interfaces
+
+You can also use `keep_quotes` with `split_joined_bool()` to both:
+- Combine flags like `-I /include` into `-I/include`
+- Preserve quotes around tokens
+
+Example:
+```fortran
+tokens = split_joined_bool('-I "/path with spaces" -Wall', .true., join_spaced=.false., keep_quotes=.true., success=ok)
+```
+
+Returns:
+```fortran
+["-I\"/path with spaces\"", "-Wall"]
+```
+
+This is especially helpful for tools that need to pass exact arguments to compilers or scripts without losing context from quoting.
+
 ---
 
 ## License
