@@ -1,9 +1,9 @@
 name       = "fortran-shlex"
-version    = "1.0.1"
+version    = "1.1.0"
 license    = "MIT"
 author     = "Federico Perini"
 maintainer = "federico.perini@gmail.com"
-copyright  = "Copyright 2023, Federico Perini"
+copyright  = "Copyright 2023-2025, Federico Perini"
 
 [build]
 auto-executables = true
