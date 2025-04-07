@@ -62,7 +62,7 @@ print *, 'error message=',error%string
 Starting with version **1.1.0**, a new high-level interface is available:
 
 ```fortran
-tokens = split_joined_bool('gfortran -I /include -L /lib -lm', join_spaced=.true., success=success)
+tokens = split('gfortran -I /include -L /lib -lm', join_spaced=.true., success=success)
 ```
 
 When the second argument (`join_spaced`) is `.true.`, `split_joined_bool()` will:
