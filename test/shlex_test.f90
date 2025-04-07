@@ -29,6 +29,8 @@ program shlex_tests
     call add_test(test_joined_1())
     call add_test(test_joined_2())
     call add_test(test_joined_3())
+    call add_test(test_joined_4())
+    call add_test(test_quotes_1())
 
 
     if (nfailed<=0) then
@@ -189,7 +191,7 @@ program shlex_tests
         integer :: i
         character(len=:), allocatable :: tokens(:)
 
-        tokens = split(string, .true., success)
+        tokens = split(string, join_spaced=.true., success=success)
         if (.not.success) return
         success = size(tokens) == size(results)
 
@@ -210,7 +212,7 @@ program shlex_tests
         integer :: i
         character(len=:), allocatable :: tokens(:)
 
-        tokens = split(string, .true., success)
+        tokens = split(string, join_spaced=.true., success=success)
         if (.not.success) return
         success = size(tokens) == size(results)
 
@@ -221,6 +223,52 @@ program shlex_tests
         end do
 
     end function test_joined_3
+
+    ! test from fpm netCDF metapackage
+    logical function test_joined_4() result(success)
+
+        character(*), parameter :: string = &
+        '-I/path/to/include -I /test -I"/path/to/include with spaces" -I "spaces here too" -L/path/to/lib -lmylib'
+        character(*), parameter :: results(*) = [character(64) :: '-I/path/to/include','-I/test',&
+        '-I"/path/to/include with spaces"','-I"spaces here too"','-L/path/to/lib','-lmylib']
+
+        integer :: i
+        character(len=:), allocatable :: tokens(:)
+
+        tokens = split(string, join_spaced=.true., keep_quotes=.true., success=success)
+        if (.not.success) return
+        success = size(tokens) == size(results)
+
+        do i = 1, size(tokens)
+            success = tokens(i) == trim(results(i))
+            if (.not.success) print *, 'token=', tokens(i), ' expected=', results(i)
+            if (.not.success) return
+        end do
+
+    end function test_joined_4
+
+    ! test from fpm netCDF metapackage
+    logical function test_quotes_1() result(success)
+
+        character(*), parameter :: string = &
+        '-I/path/to/include -I /test -I"/path/to/include with spaces" -I "spaces here too" -L/path/to/lib -lmylib'
+        character(*), parameter :: results(*) = [character(64) :: '-I/path/to/include','-I','/test',&
+        '-I"/path/to/include with spaces"','-I','"spaces here too"','-L/path/to/lib','-lmylib']
+
+        integer :: i
+        character(len=:), allocatable :: tokens(:)
+
+        tokens = split(string, join_spaced=.false., keep_quotes=.true., success=success)
+        if (.not.success) return
+        success = size(tokens) == size(results)
+
+        do i = 1, size(tokens)
+            success = tokens(i) == trim(results(i))
+            if (.not.success) print *, 'token=', tokens(i), ' expected=', results(i)
+            if (.not.success) return
+        end do
+
+    end function test_quotes_1
 
 
 end program shlex_tests
