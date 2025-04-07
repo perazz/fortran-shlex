@@ -72,6 +72,28 @@ When the second argument (`join_spaced`) is `.true.`, `split_joined_bool()` will
 
 This is useful for parsing compiler and linker flags where `-I`, `-L`, etc. may be followed by a separate token due to quoting or formatting.
 
+<<<<<<< Updated upstream
+=======
+Here's the updated section for your `README.md` to document the new `keep_quotes` functionality, starting from **version 1.1.0**.
+
+---
+
+### 🆕 Version 1.2.0 – Preserve enclosing quotes with `keep_quotes`
+
+Starting with version **1.2.0**, you can enable optional preservation of quotes around quoted strings using the `keep_quotes` flag.
+
+#### Works with:
+- Escaping quotes (`"double quoted"`)
+- Non-escaping quotes (`'single quoted'`)
+- Both `split` and `shlex` interfaces
+
+You can also use `keep_quotes` with `join_spaced=.true.` to both:
+- Combine flags like `-I /include` into `-I/include`
+- Preserve quotes around tokens
+
+This is especially helpful for tools that need to pass exact arguments to compilers or scripts without losing context from quoting.
+
+>>>>>>> Stashed changes
 ---
 
 ## License
