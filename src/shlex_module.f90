@@ -158,12 +158,21 @@ module shlex_module
 
         type(shlex_token), allocatable :: tokens(:)
 
-        integer :: n,maxlen,i,l
-
         tokens = shlex(pattern,error)
+        call tokens_to_strings(tokens,list)
 
+    end function split_error
+    
+    ! Convert a list of tokens to strings
+    pure subroutine tokens_to_strings(tokens,list)
+        type(shlex_token), optional, intent(in) :: tokens(:)
+        character(kind=SCK,len=:), allocatable, intent(out) :: list(:)
+        
+        integer :: n,maxlen,i
+        
         n      = size(tokens)
         maxlen = 0
+        
         do i=1,n
            maxlen = max(maxlen,len(tokens(i)%string))
         end do
@@ -171,9 +180,9 @@ module shlex_module
         allocate(character(kind=SCK,len=maxlen) :: list(n))
         do i=1,n
             list(i) = tokens(i)%string
-        end do
-
-    end function split_error
+        end do        
+        
+    end subroutine tokens_to_strings
 
     ! High level interface: also join spaced flags like -I /path -> -I/path
     function split_joined_bool(pattern, join_spaced, success) result(list)
@@ -195,53 +204,51 @@ module shlex_module
         logical,           intent(in)  :: join_spaced
         character(kind=SCK,len=:), allocatable :: list(:)
 
-        character(kind=SCK, len=:), allocatable :: raw(:)
         integer :: i, n, count
-        character(kind=SCK, len=:), allocatable :: tok, next_tok
+        type(shlex_token) :: tok, next_tok
+        type(shlex_token), allocatable :: raw(:),joined(:)
 
-        raw = split(pattern,error)
+        raw = shlex(pattern,error)
 
         if (error%type/=NO_ERROR .or. .not. join_spaced) then
             
-            call move_alloc(from=raw,to=list)
-            return
+            call tokens_to_strings(raw,list)
             
         else
             
             n = size(raw)
             
-            allocate(character(kind=SCK,len=len(raw(1))) :: list(n))
+            allocate(joined(n))
             count = 0
             i = 1
 
-            do while (i <= n)
+            old_tokens: do while (i <= n)
                 tok = raw(i)
-
-                if (len(tok) == 2 .and. &
-                    tok(1:1) == '-' .and. &
-                    (tok(2:2) >= 'A' .and. tok(2:2) <= 'Z' .or. tok(2:2) >= 'a' .and. tok(2:2) <= 'z')) then
-                    if (i + 1 <= n) then
-                        next_tok = raw(i + 1)
-                        if (.not. (len(next_tok) >= 1 .and. next_tok(1:1) == '-')) then
-                            count = count + 1
-                            list(count) = tok // next_tok
-                            i = i + 2
-                            cycle
-                        end if
-                    end if
+                
+                if (len_trim(tok%string)==2) then 
+                    
+                    if (tok%string(1:1) == '-' .and. &
+                       (tok%string(2:2) >= 'A' .and. tok%string(2:2) <= 'Z' .or. tok%string(2:2) >= 'a' .and. tok%string(2:2) <= 'z')) then
+                        if (i + 1 <= n) then
+                            next_tok = raw(i + 1)
+                            if (.not. (len_trim(next_tok%string) >= 1 .and. next_tok%string(1:1) == '-')) then
+                                count = count + 1
+                                joined(count) = shlex_token(TOKEN_WORD,trim(tok%string)//trim(next_tok%string))
+                                i = i + 2
+                                cycle old_tokens
+                            end if
+                        end if   
+                    endif                    
+                    
                 end if
 
                 count = count + 1
-                list(count) = tok
+                joined(count) = tok
                 i = i + 1
-            end do
-
-            if (count < size(list)) then
-                call move_alloc(from=list, to=raw)
-                allocate(character(kind=SCK, len=len(raw(1))) :: list(count))
-                list(:) = raw(:count)
-            end if            
+            end do old_tokens
             
+            call tokens_to_strings(joined(:count),list)
+
         end if
 
     end function split_joined_error
