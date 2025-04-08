@@ -1,0 +1,51 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  build-and-test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10 
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        toolchain: 
+          - {compiler: gcc, version: 9}
+          - {compiler: gcc, version: 10}
+          - {compiler: gcc, version: 11}
+          - {compiler: gcc, version: 12}
+          - {compiler: gcc, version: 13}
+          - {compiler: gcc, version: 14}
+          - {compiler: intel, version: '2023.2'}
+          - {compiler: intel, version: '2024.0'}
+          - {compiler: intel, version: '2025.0'}          
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup fortran
+        uses: fortran-lang/setup-fortran@v1.6.3
+        with:
+          compiler: ${{ matrix.toolchain.compiler }}
+          version: ${{ matrix.toolchain.version }}
+
+      - name: Setup fpm
+        uses: fortran-lang/setup-fpm@v7
+        with:
+          fpm-version: 'v0.11.0'      
+
+      - name: Set correct Fortran compiler and library path
+        if: matrix.os == 'macos-latest'
+        run: |
+          echo "FPM_FC=gfortran-${{ matrix.toolchain.version }}" >> $GITHUB_ENV
+          echo "$(brew --prefix gcc)/bin" >> $GITHUB_PATH
+          echo "DYLD_FALLBACK_LIBRARY_PATH=$(brew --prefix gcc)/lib/gcc/current" >> $GITHUB_ENV
+
+      - name: Build
+        run: | 
+          fpm build --profile debug
+
+      - name: Run unit tests 
+        run: fpm test
+
+
