@@ -65,7 +65,7 @@ Starting with version **1.1.0**, a new high-level interface is available:
 tokens = split('gfortran -I /include -L /lib -lm', join_spaced=.true., success=success)
 ```
 
-When the second argument (`join_spaced`) is `.true.`, `split_joined_bool()` will:
+When the second argument (`join_spaced`) is `.true.`, `split` will:
 - combine spaced flags like `-I /path` into `-I/path`
 - work for any single-letter flags (e.g., `-I`, `-L`, `-D`) if the next token does *not* begin with `-`
 - still respect quotes and shell-like rules for escaping
@@ -78,10 +78,18 @@ This is useful for parsing compiler and linker flags where `-I`, `-L`, etc. may 
 
 Starting with version **1.2.0**, you can enable optional preservation of quotes around quoted strings using the `keep_quotes` flag.
 
+
+```fortran
+tokens = split('gfortran -I /include -L /lib -lm', join_spaced=.true., keep_quotes=.true., success=success)
+```
+
 #### Works with:
 - Escaping quotes (`"double quoted"`)
 - Non-escaping quotes (`'single quoted'`)
 - Both `split` and `shlex` interfaces
+
+#### Note
+- When provided, `join_spaced` and `keep_quotes` are both mandatory arguments.
 
 You can also use `keep_quotes` with `join_spaced=.true.` to both:
 - Combine flags like `-I /include` into `-I/include`
