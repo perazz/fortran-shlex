@@ -239,7 +239,8 @@ module shlex_module
                 if (len_trim(tok%string)==2) then 
                     
                     if (tok%string(1:1) == '-' .and. &
-                       (tok%string(2:2) >= 'A' .and. tok%string(2:2) <= 'Z' .or. tok%string(2:2) >= 'a' .and. tok%string(2:2) <= 'z')) then
+                       (tok%string(2:2) >= 'A' .and. tok%string(2:2) <= 'Z' .or. &
+                        tok%string(2:2) >= 'a' .and. tok%string(2:2) <= 'z')) then
                         if (i + 1 <= n) then
                             next_tok = raw(i + 1)
                             if (.not. (len_trim(next_tok%string) >= 1 .and. next_tok%string(1:1) == '-')) then
