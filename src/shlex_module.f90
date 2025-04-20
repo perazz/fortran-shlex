@@ -111,6 +111,8 @@ module shlex_module
         logical :: keep_quotes = .false.
 
         contains
+        
+           procedure, non_overridable :: parse_char
 
            procedure :: destroy
            procedure :: new
@@ -170,7 +172,52 @@ module shlex_module
 
     end function MS_CHAR_TYPE
 
-
+    ! Current char type: 
+    elemental subroutine parse_char(lex,pattern,CHAR_TYPE,CHAR_VALUE,error)
+       class(shlex_lexer), intent(in)    :: lex
+       character(*),       intent(in)    :: pattern
+       integer,            intent(out)   :: CHAR_TYPE
+       character(kind=SCK),intent(out)   :: CHAR_VALUE
+       type(shlex_token),  intent(inout) :: error
+       
+       associate(pos=>lex%input_position, length=>lex%input_length)
+       
+       if (pos<=0) then 
+        
+           CHAR_TYPE  = CHAR_UNKNOWN
+           CHAR_VALUE = NULL_CHAR
+           
+       elseif (pos>length) then  
+          
+           CHAR_TYPE  = CHAR_EOF
+           CHAR_VALUE = NULL_CHAR
+          
+       else
+            
+           select case (lex%lexer)
+              case (LEXER_POSIX)            
+                 CHAR_VALUE = pattern(pos:pos)
+                 CHAR_TYPE  = POSIX_CHAR_TYPE(CHAR_VALUE)
+                 
+              case (LEXER_WINDOWS)
+                 CHAR_VALUE = pattern(pos:pos)
+                 if (pos<length) then 
+                    CHAR_TYPE = MS_CHAR_TYPE(CHAR_VALUE,pattern(pos+1:pos+1))
+                 else
+                    CHAR_TYPE = MS_CHAR_TYPE(CHAR_VALUE,NULL_CHAR)
+                 endif
+              case default
+                 CHAR_VALUE = NULL_CHAR
+                 CHAR_TYPE  = CHAR_UNKNOWN
+                 error      = new_token(SYNTAX_ERROR,"INVALID LEXER")
+           end select              
+        
+       end if
+       
+       endassociate       
+    
+    end subroutine parse_char
+    
     ! High level interface: return a list of strings, with error type
     function split_bool(pattern,success) result(list)
         character(*),      intent(in)  :: pattern
@@ -346,6 +393,8 @@ module shlex_module
                   ! Keep reading
                   list = [list,next]
             end select
+            
+            print *, 'error = ',error%print()
 
         end do
 
@@ -365,28 +414,14 @@ module shlex_module
         state      = STATE_START
         token_type = TOKEN_UNKNOWN
         allocate(character(kind=SCK,len=0) :: value)
+        error = new_token(NO_ERROR,"SUCCESS")
 
         read_chars: do
 
            ! Get next character
            this%input_position = this%input_position + 1
-           if (this%input_position<=this%input_length) then
-              if (len(pattern)>=this%input_position) then
-                 next_char = pattern(this%input_position:this%input_position)
-                 next_type = CHAR_TYPE(next_char)
-                 error     = new_token(NO_ERROR,"SUCCESS")
-              else
-                 ! Should never happen
-                 call destroy_token(token)
-                 error = new_token(SYNTAX_ERROR,"END-OF-RECORD reading pattern")
-                 return
-              endif
-           else
-              next_char = ""
-              next_type = CHAR_EOF
-              error = new_token(NO_ERROR,"SUCCESS")
-           end if
-
+           call this%parse_char(pattern,next_type,next_char,error)
+           
            select case (state)
 
               ! No characters read yet
