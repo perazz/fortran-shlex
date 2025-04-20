@@ -73,7 +73,11 @@ module shlex_module
     integer, parameter :: TOKEN_COMMENT         = 3
     integer, parameter :: TOKEN_QUOTED_WORD     = 4 ! Words in non-escaping quotes
     integer, parameter :: TOKEN_ESC_QUOTED_WORD = 5 ! Words in escaping quotes
-
+    
+    ! Lexer types
+    integer, parameter :: LEXER_POSIX           = 0 ! Lexer for posix shells 
+    integer, parameter :: LEXER_WINDOWS         = 1 ! Lexer for Windows shells
+ 
     ! Lexer state
     integer, parameter :: STATE_START            = 0 ! No characters read yet
     integer, parameter :: STATE_INWORD           = 1 ! Processing characters in a word
@@ -102,6 +106,7 @@ module shlex_module
         integer :: input_length   = -1
         
         ! Settings
+        integer :: lexer       = LEXER_POSIX
         logical :: keep_quotes = .false.
 
         contains
@@ -303,7 +308,7 @@ module shlex_module
         type(shlex_token) :: next
 
         ! Initialize lexer
-        call s%new(pattern,keep_quotes)
+        call s%new(LEXER_POSIX,pattern,keep_quotes)
 
         allocate(list(0))
         error = new_token(NO_ERROR,"SUCCESS")
@@ -515,19 +520,21 @@ module shlex_module
 
        this%input_length   = -1
        this%input_position = 0
+       this%lexer          = LEXER_POSIX
        this%keep_quotes    = .false.
 
     end subroutine destroy
 
     ! Initialize lexer
-    pure subroutine new(this,pattern,keep_quotes)
+    pure subroutine new(this,lexer,pattern,keep_quotes)
        class(shlex_lexer), intent(inout) :: this
+       integer, intent(in) :: lexer
        character(kind=SCK, len=*), intent(in) :: pattern
        logical, optional, intent(in) :: keep_quotes
  
        call this%destroy()
-
-       this%input_position = 0
+       
+       this%lexer = lexer       
        this%input_length = len(pattern)
        if (present(keep_quotes)) this%keep_quotes = keep_quotes
 
