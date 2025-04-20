@@ -20,11 +20,18 @@ module shlex_module
 
     integer, parameter, public :: SCK = selected_char_kind("ascii")
 
-    ! Shlex: return tokens
+    ! Shlex: return posix tokens
     public :: shlex
     interface shlex
         module procedure shlex_bool
         module procedure shlex_error        
+    end interface
+    
+    ! Mslex: return MS Windows tokens
+    public :: mslex
+    interface mslex
+        module procedure mslex_bool
+        module procedure mslex_error
     end interface
 
     ! Split: return split strings
@@ -34,6 +41,12 @@ module shlex_module
         module procedure split_error
         module procedure split_joined_bool
         module procedure split_joined_error
+    end interface
+    
+    public :: ms_split
+    interface ms_split
+        module procedure mslex_split_bool
+        module procedure mslex_split_error
     end interface
 
     ! Turn on verbosity for debugging
@@ -243,6 +256,31 @@ module shlex_module
 
     end function split_error
     
+    ! High level interface: return a list of strings, with error type
+    function mslex_split_bool(pattern,success) result(list)
+        character(*),      intent(in)  :: pattern
+        logical, optional, intent(out) :: success
+        character(kind=SCK,len=:), allocatable :: list(:)
+        type(shlex_token) :: error
+
+        list = mslex_split_error(pattern,error)
+        if (present(success)) success = error%type==NO_ERROR
+
+    end function mslex_split_bool
+
+    ! High level interface: return a list of strings
+    function mslex_split_error(pattern,error) result(list)
+        character(*),      intent(in)  :: pattern
+        type(shlex_token), intent(out) :: error
+        character(kind=SCK,len=:), allocatable :: list(:)
+
+        type(shlex_token), allocatable :: tokens(:)
+
+        tokens = mslex(pattern,error)
+        call tokens_to_strings(tokens,list)
+
+    end function mslex_split_error    
+    
     ! Convert a list of tokens to strings
     pure subroutine tokens_to_strings(tokens,list)
         type(shlex_token), optional, intent(in) :: tokens(:)
@@ -364,6 +402,18 @@ module shlex_module
     end function shlex_bool
 
     ! High level interface: return a list of tokens
+    function mslex_bool(pattern,success,keep_quotes) result(list)
+        character(*),      intent(in)  :: pattern
+        logical, optional, intent(out) :: success
+        logical, optional, intent(in)  :: keep_quotes
+        type(shlex_token), allocatable :: list(:)
+        type(shlex_token) :: error
+
+        list = mslex_error(pattern,error,keep_quotes)
+        if (present(success)) success = error%type==NO_ERROR
+    end function mslex_bool
+
+    ! High level interface: return a list of tokens
     function shlex_error(pattern,error,keep_quotes) result(list)
         character(*),      intent(in)  :: pattern
         type(shlex_token), intent(out) :: error
@@ -394,13 +444,48 @@ module shlex_module
                   list = [list,next]
             end select
             
-            print *, 'error = ',error%print()
-
         end do
 
         return
 
     end function shlex_error
+
+    ! High level interface: return a list of tokens
+    function mslex_error(pattern,error,keep_quotes) result(list)
+        character(*),      intent(in)  :: pattern
+        type(shlex_token), intent(out) :: error
+        logical, optional, intent(in)  :: keep_quotes
+        type(shlex_token), allocatable :: list(:)
+
+        type(shlex_lexer) :: s
+        type(shlex_token) :: next
+
+        ! Initialize lexer
+        call s%new(LEXER_WINDOWS,pattern,keep_quotes)
+
+        allocate(list(0))
+        error = new_token(NO_ERROR,"SUCCESS")
+        do while (error%type==NO_ERROR)
+
+            next = scan_stream(s,pattern,error)
+            select case (error%type)
+               case (EOF_ERROR)
+                  ! Finished reading
+                  error = new_token(NO_ERROR,"SUCCESS")
+                  exit
+               case (SYNTAX_ERROR)
+                  ! Something happened
+                  exit
+               case default
+                  ! Keep reading
+                  list = [list,next]
+            end select
+            
+        end do
+
+        return
+
+    end function mslex_error
 
     type(shlex_token) function scan_stream(this,pattern,error) result(token)
         class(shlex_lexer), intent(inout) :: this
