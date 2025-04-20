@@ -60,6 +60,14 @@ module shlex_module
     integer, parameter :: CHAR_ESCAPE            = 4
     integer, parameter :: CHAR_COMMENT           = 5
     integer, parameter :: CHAR_EOF               = 6
+    
+    character(*), parameter :: CHAR_NAME(0:6) = [character(17) :: 'UNKNOWN', &
+                                               'SPACE  ', &
+                                               'ESCAPING QUOTE', &
+                                               'NONESCAPING QUOTE', &
+                                               'ESCAPE', &
+                                               'COMMENT', &
+                                               'EOF']
 
     ! Error types
     integer, parameter :: NO_ERROR               = 0
@@ -111,8 +119,7 @@ module shlex_module
            procedure :: print => print_token
 
     end type shlex_token
-
-
+    
     type, public :: shlex_lexer
         
         ! The input string
@@ -168,22 +175,21 @@ module shlex_module
 
     end function POSIX_CHAR_TYPE
 
-    elemental integer function MS_CHAR_TYPE(c, cnext) result(CHAR_TYPE)
+    elemental integer function MS_CHAR_TYPE(c) result(CHAR_TYPE)
         character(kind=SCK), intent(in) :: c
-        character(kind=SCK), intent(in) :: cnext ! Null if not present
 
+        ! Handle whitespace outside of quotes
         if (scan(c, SPACE_CHARS) > 0) then
             CHAR_TYPE = CHAR_SPACE
-        elseif (c == DOUBLE_QUOTE) then
-            CHAR_TYPE = CHAR_ESCAPING_QUOTE
-        elseif (c == ESCAPE_CHARS .and. cnext==DOUBLE_QUOTE) then
-            ! Contextual escape logic
-            CHAR_TYPE = CHAR_ESCAPE
+        ! Double quote handling
+        elseif (scan(c,DOUBLE_QUOTE)>0) then
+            CHAR_TYPE = CHAR_NONESCAPING_QUOTE
         else
             CHAR_TYPE = CHAR_UNKNOWN
         end if
 
     end function MS_CHAR_TYPE
+
 
     ! Current char type: 
     elemental subroutine parse_char(lex,pattern,CHAR_TYPE,CHAR_VALUE,error)
@@ -210,15 +216,10 @@ module shlex_module
            select case (lex%lexer)
               case (LEXER_POSIX)            
                  CHAR_VALUE = pattern(pos:pos)
-                 CHAR_TYPE  = POSIX_CHAR_TYPE(CHAR_VALUE)
-                 
+                 CHAR_TYPE  = POSIX_CHAR_TYPE(CHAR_VALUE)                
               case (LEXER_WINDOWS)
                  CHAR_VALUE = pattern(pos:pos)
-                 if (pos<length) then 
-                    CHAR_TYPE = MS_CHAR_TYPE(CHAR_VALUE,pattern(pos+1:pos+1))
-                 else
-                    CHAR_TYPE = MS_CHAR_TYPE(CHAR_VALUE,NULL_CHAR)
-                 endif
+                 CHAR_TYPE  = MS_CHAR_TYPE(CHAR_VALUE)
               case default
                  CHAR_VALUE = NULL_CHAR
                  CHAR_TYPE  = CHAR_UNKNOWN
@@ -486,13 +487,34 @@ module shlex_module
         return
 
     end function mslex_error
+    
+    pure integer function n_previous_escapes(this,pattern) result(prev)
+        class(shlex_lexer), intent(in) :: this
+        character(kind=SCK,len=*), intent(in) :: pattern
+        
+        integer :: pos
+        
+        prev = 0
+        pos  = this%input_position
+        
+        do while (pos>1)
+            pos = pos-1
+            if (scan(pattern(pos:pos),ESCAPE_CHARS)>0) then 
+                prev = prev+1
+            else
+                exit
+            end if
+        end do
+        
+    end function n_previous_escapes
 
     type(shlex_token) function scan_stream(this,pattern,error) result(token)
         class(shlex_lexer), intent(inout) :: this
         character(kind=SCK,len=*), intent(in) :: pattern
         type(shlex_token), intent(out) :: error
 
-        integer :: state,next_type,token_type
+        integer :: state,next_type,token_type,prev_escapes
+        logical :: in_quotes_quote
         character(kind=SCK) :: next_char
         character(kind=SCK,len=:), allocatable :: value
 
@@ -506,6 +528,7 @@ module shlex_module
            ! Get next character
            this%input_position = this%input_position + 1
            call this%parse_char(pattern,next_type,next_char,error)
+           if (DEBUG) print *, 'NEW CHAR: [',next_char,'] type=',CHAR_NAME(next_type),' error=',error%print()
            
            select case (state)
 
@@ -524,13 +547,14 @@ module shlex_module
                          state      = STATE_QUOTING_ESCAPING
                          if (this%keep_quotes) value = value//next_char
                       case (CHAR_NONESCAPING_QUOTE)
+                         ! Quote with no previous escapes (start) is necessarily a quoting character
                          token_type = TOKEN_QUOTED_WORD
                          state      = STATE_QUOTING
-                         if (this%keep_quotes) value = value//next_char
-                      case (CHAR_ESCAPE)
+                         if (this%keep_quotes) value = value//next_char                            
+                      case (CHAR_ESCAPE) ! posix only                        
                          token_type = TOKEN_WORD
-                         state      = STATE_ESCAPING
-                      case (CHAR_COMMENT)
+                         state      = STATE_ESCAPING   
+                      case (CHAR_COMMENT) ! posix only
                          token_type = TOKEN_COMMENT
                          state      = STATE_COMMENT
                       case default
@@ -550,8 +574,28 @@ module shlex_module
                          state = STATE_QUOTING_ESCAPING
                          if (this%keep_quotes) value = value//next_char
                       case (CHAR_NONESCAPING_QUOTE)
-                         state = STATE_QUOTING
-                         if (this%keep_quotes) value = value//next_char
+                        
+                         if (this%lexer==LEXER_WINDOWS) then 
+                             ! Check for previous
+                             prev_escapes = n_previous_escapes(this,pattern)
+                             if (prev_escapes==0) then 
+                                ! not escaping: keep going
+                                value = value//next_char
+                             elseif (mod(prev_escapes,2)==0) then 
+                                ! Even number of escapes: remove half of them from the string and then quote
+                                value = value(1:len(value)-prev_escapes/2)
+                                state = STATE_QUOTING
+                                if (this%keep_quotes) value = value//next_char                                                        
+                             else
+                                ! Odd number of escapes: remove half doubles and keep going
+                                value = value(1:len(value)-(prev_escapes-1)/2)//next_char
+                             end if
+                             
+                         else   
+                             state = STATE_QUOTING
+                             if (this%keep_quotes) value = value//next_char                                                        
+                         end if
+                        
                       case (CHAR_ESCAPE)
                          state = STATE_ESCAPING
                       case default
@@ -594,7 +638,7 @@ module shlex_module
                       case (CHAR_EOF)
                          ! Error: EOF when expecting closing quote
                          error = new_token(SYNTAX_ERROR,"END-OF-FILE when expecting closing quote")
-                         token = new_token(token_type,value)
+                         token = new_token(token_type,value)                            
                          return
                       case (CHAR_ESCAPING_QUOTE)
                          state = STATE_INWORD
@@ -611,13 +655,45 @@ module shlex_module
 
                    select case (next_type)
                       case (CHAR_EOF)
-                         ! Error: EOF when expecting closing quote
-                         error = new_token(SYNTAX_ERROR,"END-OF-FILE when expecting closing quote")
+                         if (this%lexer==LEXER_WINDOWS) then 
+                             ! Windows is very forgiving: no need to close the quote
+                             state = STATE_INWORD
+                             if (this%keep_quotes) value = value//DOUBLE_QUOTE
+                             if (DEBUG) print *, 'Unfinished quote... <',value,'>'                             
+                         else                        
+                             ! Error: EOF when expecting closing quote
+                             error = new_token(SYNTAX_ERROR,"END-OF-FILE when expecting closing quote")
+                         endif
                          token = new_token(token_type,value)
                          return
                       case (CHAR_NONESCAPING_QUOTE)
-                         state = STATE_INWORD
-                         if (this%keep_quotes) value = value//next_char
+                        
+                         if (this%lexer==LEXER_WINDOWS .and. this%input_position<this%input_length) then 
+                            
+                            in_quotes_quote = pattern(this%input_position+1:this%input_position+1)==DOUBLE_QUOTE
+                            
+                         else
+                                
+                            in_quotes_quote = .false.    
+                            
+                         end if
+                         
+                         if (DEBUG) print *, 'IN QUOTES? ',in_quotes_quote
+                         
+                         
+                         if (in_quotes_quote) then 
+                             ! Advance by one if replacing "" with "
+                             ! do not change state
+                             this%input_position=this%input_position+1
+                             next_type = CHAR_UNKNOWN
+                             value = value//next_char
+                             
+                         else
+                             ! End quoting
+                             state = STATE_INWORD
+                             if (this%keep_quotes) value = value//next_char
+                         endif 
+                            
                       case default
                          value = value//next_char
                    end select

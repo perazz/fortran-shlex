@@ -36,6 +36,7 @@ program shlex_tests
         
     do ms=1,200
         call add_test(test_mslex(ms))
+        !if (nfailed>0) stop 1
     end do
     
 
@@ -283,21 +284,40 @@ program shlex_tests
         integer, intent(in) :: id
         
         integer :: i
+        type(shlex_token) :: error        
         character(:), allocatable :: pattern,results(:),tokens(:)
         
         ! Get test 
         call get_mslex_test(id,pattern,results)
+        
+        print "(///,'Parsing pattern: ',a///)", pattern
 
-        tokens = ms_split(pattern, success)
+        tokens = ms_split(pattern, error)
+        
+        success = error%type==0
+        
         if (.not.success) then 
-            print *, 'MSLEX parsing failed for case ',id
+            print *, 'MSLEX parsing failed for case ',id,' pattern=',pattern
+            print *, 'error=',error%print()
             return
         endif        
-        success = size(tokens) == size(results)
-        if (.not.success) print *, 'MSLEX failed for case ',id
+        success = size(tokens) == size(results)        
+        if (.not.success) print *, 'MSLEX failed for case ',id,' pattern=',pattern
+        if (.not.success) print *, 'error=',error%print()
+        if (.not.success) return
         do i = 1, size(tokens)
             success = trim(tokens(i)) == trim(results(i))
-            if (.not.success) print *, 'token=', tokens(i), ' expected=', results(i)
+            if (.not.success) print *, 'token ',i,': <', tokens(i), '> expected=<', results(i),'>',' success=',success
+            if (.not.success) print *, 'char tokens ',iachar(trim(tokens(i)))
+            if (.not.success) print *, 'char exp    ',iachar(trim(results(i)))
+            
+            print *, 'tokens(i)=<',tokens(i),'> len=',len(tokens(i)),' char=',iachar(tokens(i)), 'len trim=',len_trim(tokens(i))
+            print *, 'res   (i)=<',results(i),'> len=',len(results(i)),' chars=',iachar(results(i)),' len trim=',len_trim(results(i))
+            
+            
+            
+            if (.not.success) print *, 'error=',error%print()
+            if (.not.success) print *, 'pattern=<',pattern,'>'
             if (.not.success) return
         end do
     end function test_mslex
