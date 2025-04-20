@@ -53,6 +53,7 @@ module shlex_module
     integer, parameter :: SYNTAX_ERROR           = 1
     integer, parameter :: EOF_ERROR              = 2
 
+    character(kind=SCK), parameter, public :: NULL_CHAR  = achar(0, kind=SCK)
     character(kind=SCK), parameter, public :: NEWLINE    = achar(10,kind=SCK)  ! \n or line feed
     character(kind=SCK), parameter, public :: TAB        = achar( 9,kind=SCK)  ! \t or tabulation character
     character(kind=SCK), parameter, public :: CARRIAGE   = achar(13,kind=SCK)  ! \t or tabulation character
@@ -60,10 +61,10 @@ module shlex_module
     integer, parameter :: MAX_CHAR_CLASS_LEN = 1024
 
     ! Character type sets
-    character(kind=SCK,len=*), parameter :: SPACE_CHARS = " "//NEWLINE//TAB//CARRIAGE
-    character(kind=SCK,len=*), parameter :: ESCAPING_QUOTE_CHARS = '"'
-    character(kind=SCK,len=*), parameter :: NONESCAPING_QUOTE_CHARS = "'"
-    character(kind=SCK,len=*), parameter :: ESCAPE_CHARS = "\"
+    character(kind=SCK,len=*), parameter :: SPACE_CHARS   = " "//NEWLINE//TAB//CARRIAGE
+    character(kind=SCK,len=*), parameter :: DOUBLE_QUOTE  = '"'
+    character(kind=SCK,len=*), parameter :: SINGLE_QUOTE  = "'"
+    character(kind=SCK,len=*), parameter :: ESCAPE_CHARS  = "\"
     character(kind=SCK,len=*), parameter :: COMMENT_CHARS = "#"
 
     ! Token types
@@ -100,7 +101,7 @@ module shlex_module
 
 
     type, public :: shlex_lexer
-
+        
         ! The input string
         integer :: input_position = 0
         integer :: input_length   = -1
@@ -133,14 +134,14 @@ module shlex_module
     end function new_token
 
     ! Return
-    elemental integer function CHAR_TYPE(c)
+    elemental integer function POSIX_CHAR_TYPE(c) result(CHAR_TYPE)
        character(kind=SCK), intent(in) :: c
 
        if (scan(c,SPACE_CHARS)>0) then
           CHAR_TYPE = CHAR_SPACE
-       elseif (scan(c,ESCAPING_QUOTE_CHARS)>0) then
+       elseif (scan(c,DOUBLE_QUOTE)>0) then
           CHAR_TYPE = CHAR_ESCAPING_QUOTE
-       elseif (scan(c,NONESCAPING_QUOTE_CHARS)>0) then
+       elseif (scan(c,SINGLE_QUOTE)>0) then
           CHAR_TYPE = CHAR_NONESCAPING_QUOTE
        elseif (scan(c,ESCAPE_CHARS)>0) then
           CHAR_TYPE = CHAR_ESCAPE
@@ -150,7 +151,25 @@ module shlex_module
           CHAR_TYPE = CHAR_UNKNOWN
        end if
 
-    end function CHAR_TYPE
+    end function POSIX_CHAR_TYPE
+
+    elemental integer function MS_CHAR_TYPE(c, cnext) result(CHAR_TYPE)
+        character(kind=SCK), intent(in) :: c
+        character(kind=SCK), intent(in) :: cnext ! Null if not present
+
+        if (scan(c, SPACE_CHARS) > 0) then
+            CHAR_TYPE = CHAR_SPACE
+        elseif (c == DOUBLE_QUOTE) then
+            CHAR_TYPE = CHAR_ESCAPING_QUOTE
+        elseif (c == ESCAPE_CHARS .and. cnext==DOUBLE_QUOTE) then
+            ! Contextual escape logic
+            CHAR_TYPE = CHAR_ESCAPE
+        else
+            CHAR_TYPE = CHAR_UNKNOWN
+        end if
+
+    end function MS_CHAR_TYPE
+
 
     ! High level interface: return a list of strings, with error type
     function split_bool(pattern,success) result(list)
