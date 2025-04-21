@@ -1181,7 +1181,30 @@ module shlex_module
        endassociate
        
     end function ms_escape_quotes
-        
 
+    ! Wrap a string whose internal quotes have been escaped in double quotes.
+    ! This handles adding the correct number of backslashes in front of the closing quote.    
+    pure function ms_wrap_in_quotes(s) result(wrapped)
+       character(kind=SCK,len=*), intent(in) :: s
+       character(kind=SCK,len=:), allocatable :: wrapped
+       
+       integer :: slashes,pos
+       
+       ! Check if there are trailing slashes that need to be doubled
+       slashes = 0
+       pos = len(s)+1
+       trailing_slashes: do while (pos>1)
+          pos = pos-1
+          if (s(pos:pos)=='\') then 
+             slashes = slashes+1
+          else
+             exit trailing_slashes                
+          end if
+       end do trailing_slashes
+       
+       wrapped = '"' // s // repeat('\',slashes) // '"'
+       
+    end function ms_wrap_in_quotes    
+     
 end module shlex_module
 
