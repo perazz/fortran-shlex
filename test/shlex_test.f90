@@ -40,10 +40,14 @@ program shlex_tests
     end do
     
     do ms=1,12
-        call add_test(test_mslex_pretty(ms))
+        call add_test(test_mslex_pretty(ms,cmd=.true.))
         if (nfailed>0) stop 1
     end do
     
+    do ms=1,7
+        call add_test(test_mslex_pretty(ms,cmd=.false.))
+        if (nfailed>0) stop 1
+    end do
 
     if (nfailed<=0) then
         print "(*(a,:,i0))", 'SUCCESS! all ',npassed,' tests passed.'
@@ -325,29 +329,32 @@ program shlex_tests
     end function test_mslex
 
     ! Test case: empty string []
-    logical function test_mslex_pretty(id) result(success)        
+    logical function test_mslex_pretty(id,cmd) result(success)        
         integer, intent(in) :: id
+        logical, intent(in) :: cmd
         
         integer :: i
         type(shlex_token) :: error   
-        character(:), allocatable :: pattern,results(:),tokens(:),quoted
+        character(:), allocatable :: pattern,results,tokens(:),expected(:)
         
         ! Get test 
-        call get_mslex_pretty_example(id,pattern,results)
+        if (cmd) then 
+           call get_mslex_pretty_example(id,pattern,results)
+        else
+           call get_mslex_not_cmd_example(id,pattern,results)
+        endif
         
         print '(///a///)', pattern
         
-        quoted = mslex_quote(pattern)
-        
-        success = quoted==results(1)
+        success = mslex_quote(pattern,for_cmd=cmd)==results
         if (.not.success) then 
             print *, 'pattern=',pattern
-            print *, 'quoted =',quoted
-            print *, 'expect =',results(1)
+            print *, 'quoted =',mslex_quote(pattern,for_cmd=cmd)
+            print *, 'expect =',results
             return
         end if
         
-        tokens = ms_split(results(1), error=error)
+        tokens = ms_split(results, like_cmd=cmd, error=error)
         
         success = error%type==0 .and.  size(tokens)==1
         
@@ -359,8 +366,22 @@ program shlex_tests
             print *, 'error=',error%print()
             return
         endif        
-    
         
+        if (cmd) then 
+            tokens   = ms_split(results // " " // results // " foo bar")        
+            expected = [character(len=max(3,len(pattern))) :: pattern, pattern, "foo", "bar"]
+        else
+            tokens   = ms_split(results // " " // results, like_cmd=cmd)
+            expected = [character(len=len(pattern)) :: pattern,pattern]
+        endif
+        
+        success  = all(tokens==expected)
+        
+        if (.not.success) then 
+            do i=1,size(tokens)
+               print *, tokens(i),' | ',expected(i)
+            end do
+        end if
         
     end function test_mslex_pretty
 
@@ -1611,122 +1632,127 @@ program shlex_tests
         
     subroutine get_mslex_pretty_example(id, pattern, expected_result)
         integer, intent(in) :: id
-        character(:), allocatable, intent(out) :: pattern, expected_result(:)
+        character(:), allocatable, intent(out) :: pattern, expected_result
 
         select case (id)
           case (1)
              pattern = 'c:\Program Files\FooBar'
-             allocate(character(len=25) :: expected_result(1))
-             expected_result(1) = '"c:\Program Files\FooBar"'
+             expected_result = '"c:\Program Files\FooBar"'
           case (2)
              pattern = 'c:\Program Files (x86)\FooBar'
-             allocate(character(len=31) :: expected_result(1))
-             expected_result(1) = '"c:\Program Files (x86)\FooBar"'
+             expected_result = '"c:\Program Files (x86)\FooBar"'
           case (3)
              pattern = '^'
-             allocate(character(len=2) :: expected_result(1))
-             expected_result(1) = '^^'
+             expected_result = '^^'
           case (4)
              pattern = ' ^'
-             allocate(character(len=4) :: expected_result(1))
-             expected_result(1) = '" ^"'
+             expected_result = '" ^"'
           case (5)
              pattern = '&'
-             allocate(character(len=2) :: expected_result(1))
-             expected_result(1) = '^&'
+             expected_result = '^&'
           case (6)
              pattern = '!'
-             allocate(character(len=2) :: expected_result(1))
-             expected_result(1) = '^!'
+             expected_result = '^!'
           case (7)
              pattern = '%foo%'
-             allocate(character(len=7) :: expected_result(1))
-             expected_result(1) = '^%foo^%'
+             expected_result = '^%foo^%'
           case (8)
              pattern = '!foo!'
-             allocate(character(len=7) :: expected_result(1))
-             expected_result(1) = '^!foo^!'
+             expected_result = '^!foo^!'
           case (9)
              pattern = 'foo bar!'
-             allocate(character(len=11) :: expected_result(1))
-             expected_result(1) = '"foo bar"^!'
+             expected_result = '"foo bar"^!'
           case (10)
              pattern = '!foo bar!'
-             allocate(character(len=13) :: expected_result(1))
-             expected_result(1) = '^!"foo bar"^!'
+             expected_result = '^!"foo bar"^!'
           case (11)
              pattern = 'foo\\bar\\baz\\'
-             allocate(character(len=15) :: expected_result(1))
-             expected_result(1) = 'foo\\bar\\baz\\'
+             expected_result = 'foo\\bar\\baz\\'
           case (12)
              pattern = 'foo bar\\baz\\'
-             allocate(character(len=17) :: expected_result(1))
-             expected_result(1) = '"foo bar\\baz\\\\"'
-!          case (13)
-!             pattern = 'foo () bar\baz\'
-!             allocate(character(len=18) :: expected_result(1))
-!             expected_result(1) = '"foo () bar\baz\\"'
-!          case (14)
-!             pattern = 'foo () bar\baz\\'
-!             allocate(character(len=20) :: expected_result(1))
-!             expected_result(1) = '""foo () bar\baz\\\\""'
-!          case (15)
-!             pattern = 'foo () bar\baz\\\'
-!             allocate(character(len=22) :: expected_result(1))
-!             expected_result(1) = '""foo () bar\baz\\\\\\""'
-!          case (16)
-!             pattern = 'foo () bar\baz\\\\'
-!             allocate(character(len=24) :: expected_result(1))
-!             expected_result(1) = '""foo () bar\baz\\\\\\\\""'
-!          case (17)
-!             pattern = 'foo\bar! baz'
-!             allocate(character(len=15) :: expected_result(1))
-!             expected_result(1) = 'foo\bar^!"" baz""'
-!          case (18)
-!             pattern = 'x\!'
-!             allocate(character(len=4) :: expected_result(1))
-!             expected_result(1) = 'x\^!'
-!          case (19)
-!             pattern = 'foo\'
-!             allocate(character(len=4) :: expected_result(1))
-!             expected_result(1) = 'foo\'
-!          case (20)
-!             pattern = '\'
-!             allocate(character(len=1) :: expected_result(1))
-!             expected_result(1) = '\'
-!          case (21)
-!             pattern = '\'
-!             allocate(character(len=1) :: expected_result(1))
-!             expected_result(1) = '\'
-!          case (22)
-!             pattern = 'foo'
-!             allocate(character(len=3) :: expected_result(1))
-!             expected_result(1) = 'foo'
-!          case (23)
-!             pattern = 'foo\'
-!             allocate(character(len=4) :: expected_result(1))
-!             expected_result(1) = 'foo\'
-!          case (24)
-!             pattern = 'foo!'
-!             allocate(character(len=4) :: expected_result(1))
-!             expected_result(1) = 'foo!'
-!          case (25)
-!             pattern = 'foo bar'
-!             allocate(character(len=9) :: expected_result(1))
-!             expected_result(1) = '""foo bar""'
-!          case (26)
-!             pattern = 'foo\bar'
-!             allocate(character(len=7) :: expected_result(1))
-!             expected_result(1) = 'foo\bar'
-!          case (27)
-!             pattern = 'foo""bar'
-!             allocate(character(len=10) :: expected_result(1))
-!             expected_result(1) = 'foo\\\""bar'
+             expected_result = '"foo bar\\baz\\\\"'
+          case (13)
+             pattern = 'foo () bar\baz\'
+             expected_result = '"foo () bar\baz\\"'
+          case (14)
+             pattern = 'foo () bar\baz\\'
+             expected_result = '""foo () bar\baz\\\\""'
+          case (15)
+             pattern = 'foo () bar\baz\\\'
+             expected_result = '""foo () bar\baz\\\\\\""'
+          case (16)
+             pattern = 'foo () bar\baz\\\\'
+             expected_result = '""foo () bar\baz\\\\\\\\""'
+          case (17)
+             pattern = 'foo\bar! baz'
+             expected_result = 'foo\bar^!"" baz""'
+          case (18)
+             pattern = 'x\!'
+             expected_result = 'x\^!'
+          case (19)
+             pattern = 'foo\'
+             expected_result = 'foo\'
+          case (20)
+             pattern = '\'
+             expected_result = '\'
+          case (21)
+             pattern = '\'
+             expected_result = '\'
+          case (22)
+             pattern = 'foo'
+             expected_result = 'foo'
+          case (23)
+             pattern = 'foo\'
+             expected_result = 'foo\'
+          case (24)
+             pattern = 'foo!'
+             expected_result = 'foo!'
+          case (25)
+             pattern = 'foo bar'
+             expected_result = '""foo bar""'
+          case (26)
+             pattern = 'foo\bar'
+             expected_result = 'foo\bar'
+          case (27)
+             pattern = 'foo""bar'
+             expected_result = 'foo\\\""bar'
           case default
              pattern = ''
-             allocate(character(len=0) :: expected_result(0))
+             expected_result = ''
         end select
-    end subroutine get_mslex_pretty_example        
+    end subroutine get_mslex_pretty_example
+
+    subroutine get_mslex_not_cmd_example(id, pattern, expected_result)
+        integer, intent(in) :: id
+        character(:), allocatable, intent(out) :: pattern, expected_result
+
+        select case (id)
+          case (1)
+             pattern = '\'
+             expected_result = '\'
+          case (2)
+             pattern = 'foo'
+             expected_result = 'foo'
+          case (3)
+             pattern = 'foo\'
+             expected_result = 'foo\'
+          case (4)
+             pattern = 'foo!'
+             expected_result = 'foo!'
+          case (5)
+             pattern = 'foo bar'
+             expected_result = '"foo bar"'
+          case (6)
+             pattern = 'foo\bar'
+             expected_result = 'foo\bar'
+          case (7)
+             pattern = 'foo"bar'
+             expected_result = 'foo\"bar'
+          case default
+             pattern = ''
+             expected_result = ''
+        end select
+    end subroutine get_mslex_not_cmd_example
       
                  
         
