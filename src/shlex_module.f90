@@ -75,20 +75,24 @@ module shlex_module
     integer, parameter :: NO_ERROR               = 0
     integer, parameter :: SYNTAX_ERROR           = 1
     integer, parameter :: EOF_ERROR              = 2
+    
+    integer, parameter :: MAX_CHAR_CLASS_LEN = 1024
 
     character(kind=SCK), parameter, public :: NULL_CHAR  = achar(0, kind=SCK)
     character(kind=SCK), parameter, public :: NEWLINE    = achar(10,kind=SCK)  ! \n or line feed
     character(kind=SCK), parameter, public :: TAB        = achar( 9,kind=SCK)  ! \t or tabulation character
     character(kind=SCK), parameter, public :: CARRIAGE   = achar(13,kind=SCK)  ! \t or tabulation character
 
-    integer, parameter :: MAX_CHAR_CLASS_LEN = 1024
-
     ! Character type sets
     character(kind=SCK,len=*), parameter :: SPACE_CHARS   = " "//NEWLINE//TAB//CARRIAGE
     character(kind=SCK,len=*), parameter :: DOUBLE_QUOTE  = '"'
     character(kind=SCK,len=*), parameter :: SINGLE_QUOTE  = "'"
     character(kind=SCK,len=*), parameter :: ESCAPE_CHARS  = "\"
-    character(kind=SCK,len=*), parameter :: COMMENT_CHARS = "#"
+    character(kind=SCK,len=*), parameter :: COMMENT_CHARS = "#"   
+    
+    character(kind=SCK,len=*), parameter :: META_CHARS    = DOUBLE_QUOTE//'^&|<>()%!'
+    character(kind=SCK,len=*), parameter :: META_OR_SPACE = SPACE_CHARS//META_CHARS
+    
 
     ! Token types
     integer, parameter :: TOKEN_UNKNOWN         = 0
@@ -549,21 +553,52 @@ module shlex_module
 
     end function mslex_error    
 
-    ! High level interface: return a list of tokens
-    function mslex_quote(pattern,error,keep_quotes) result(escaped)
-        character(*),      intent(in)  :: pattern
-        type(shlex_token), intent(out) :: error
-        logical, optional, intent(in)  :: keep_quotes
-        character(:), allocatable :: escaped
-
-        type(mslex_group), allocatable :: groups(:)
-        type(mslex_group) :: next
+    ! Quote a string for use as a command line argument in DOS or Windows.
+    ! If ``for_cmd`` is .true., this will quote the strings so the result will be parsed correctly
+    ! by ``cmd.exe`` and then by ``CommandLineToArgvW``.  If false, then this will quote the strings 
+    ! so the result will be parsed correctly when passed directly to ``CommandLineToArgvW``.
+    function mslex_quote(s,for_cmd) result(quoted)
+        character(*),      intent(in)  :: s
+        logical, optional, intent(in)  :: for_cmd
+        character(:), allocatable :: quoted
         
-        escaped = ms_escape_quotes(pattern)
+        logical :: cmd
+        character(:), allocatable :: alt
         
-        print *, 'escaped=',escaped
+        cmd = .true.
+        if (present(for_cmd)) cmd = for_cmd
+        
+        if (len(s)<=0) then 
+            quoted = DOUBLE_QUOTE//DOUBLE_QUOTE
+            
+        elseif (cmd) then 
+            
+            if (scan(s,META_OR_SPACE)<=0) then 
+                quoted = s
+            else
+                
+                quoted = ms_quote_for_cmd(s)
+                
+                if (scan(s,SPACE_CHARS//DOUBLE_QUOTE)<=0) then 
+                    
+                    ! for example the string Çx\!È can be quoted as Çx\^!È, but
+                    ! # _quote_for_cmd would quote it as Ç"x\\"^!È                    
+                    alt = ms_alternative_quote_for_cmd(s)
+                    
+                    ! Use caret-escaped version if it's shorter
+                    if (len(alt) < len(quoted)) call move_alloc(from=alt,to=quoted)
 
+                end if
 
+            endif
+            
+        else
+            if (scan(s,SPACE_CHARS)==0) then 
+                quoted = ms_escape_quotes(s)
+            else
+                quoted = ms_wrap_in_quotes(ms_escape_quotes(s))
+            end if
+        end if        
 
         return
 
@@ -1205,6 +1240,144 @@ module shlex_module
        wrapped = '"' // s // repeat('\',slashes) // '"'
        
     end function ms_wrap_in_quotes    
+     
+     
+    ! Quote a string for cmd. Split the string into sections that can be quoted (or used verbatim),
+    ! and runs of % and ! characters which must be escaped with carets outside of quotes, and runs of 
+    ! quote characters, which must be escaped with a caret for cmd.exe, and a backslash for
+    ! CommandLineToArgvW.
+    pure function ms_quote_for_cmd(s) result(wrapped)
+       character(kind=SCK,len=*), intent(in), target :: s
+       character(kind=SCK,len=:), allocatable :: wrapped
+
+       type(shlex_lexer) :: lex
+       logical :: in_block
+       integer :: start,bpos
+       character(len=3*len(s)) :: buffer
+       
+       associate(pos=>lex%input_position, length=>lex%input_length)
+       
+       bpos = 0
+       call lex%new(LEXER_WINDOWS,s)
+       in_block = .false.
+       start = 0
+       
+       do while (pos<length)
+        
+           pos = pos+1
+           
+           if (scan(s(pos:pos),DOUBLE_QUOTE)>0) then 
+            
+              ! Flush previous block
+              call flush_block(in_block,start,pos,s,buffer,bpos)
+            
+              ! Quote found! Escape it with '\^"'
+              buffer(bpos+1:bpos+3) = '\^"'
+              bpos = bpos+3            
+              in_block = .false.
+            
+           elseif (scan(s(pos:pos),'%!')>0) then  
+            
+              ! Flush previous block
+              call flush_block(in_block,start,pos,s,buffer,bpos)
+            
+              ! Marker found! Escape it with '^'
+              buffer(bpos+1:bpos+2) = '^'//s(pos:pos)
+              bpos = bpos+2
+              in_block = .false.
+                            
+           else
+            
+              ! Normal character block
+              if (.not.in_block) then 
+                 start = pos
+                 in_block = .true.
+              end if
+            
+           end if        
+        
+       end do
+       
+       ! Flush previous block
+       call flush_block(in_block,start,length,s,buffer,bpos)
+       
+       allocate(character(len=bpos) :: wrapped)
+       if (bpos>0) wrapped(1:bpos) = buffer(1:bpos)
+       
+       endassociate
+       
+       contains
+       
+       pure subroutine flush_block(in_block,start,pos,s,buffer,bpos)
+          logical, intent(inout) :: in_block
+          character(*), intent(in) :: s
+          character(*), intent(inout) :: buffer
+          integer, intent(in) :: start,pos
+          integer, intent(inout) :: bpos
+        
+          integer :: n
+          character(len=:,kind=SCK), allocatable :: quoted,blk
+        
+          if (in_block) then 
+             
+             blk = s(start:pos-1)
+             n = len(blk)
+             
+             if (scan(blk,META_OR_SPACE)>0 .or. blk(n:n)=='\') then 
+                 quoted = ms_wrap_in_quotes(blk)
+                 buffer(bpos+1:bpos+len(quoted)) = quoted
+                 bpos = bpos+len(quoted)
+             else   
+                 buffer(bpos+1:bpos+n) = blk
+                 bpos = bpos+n                
+             end if
+             
+          end if   
+          
+          in_block = .false.       
+        
+       end subroutine flush_block 
+              
+    end function ms_quote_for_cmd
+    
+    pure function ms_alternative_quote_for_cmd(s) result(wrapped)
+       character(kind=SCK,len=*), intent(in), target :: s
+       character(kind=SCK,len=:), allocatable :: wrapped
+
+       type(shlex_lexer) :: lex
+       integer :: bpos
+       character(len=2*len(s)) :: buffer
+       
+       associate(pos=>lex%input_position, length=>lex%input_length)
+       
+       bpos = 0
+       call lex%new(LEXER_WINDOWS,s)
+       
+       do while (pos<length)
+        
+           pos = pos+1
+           
+           if (scan(s(pos:pos),META_CHARS)>0) then 
+            
+              ! Quote found! Escape it with '\^"'
+              bpos = bpos+1
+              buffer(bpos:bpos) = '^'
+              
+           
+           endif 
+            
+           bpos = bpos+1 
+           buffer(bpos:bpos) = s(pos:pos)
+              
+       end do
+    
+       allocate(character(len=bpos) :: wrapped)
+       if (bpos>0) wrapped(1:bpos) = buffer(1:bpos)
+       
+       endassociate
+       
+    end function ms_alternative_quote_for_cmd
+    
      
 end module shlex_module
 

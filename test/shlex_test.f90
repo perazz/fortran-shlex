@@ -341,7 +341,8 @@ program shlex_tests
         
         print "(///,'Parsing pattern: <',a,'>'///)", pattern
 
-        escaped = mslex_quote(pattern, error)
+        escaped = mslex_quote(pattern)
+        print *, 'escaped = <'//escaped//'>'
         stop 'ttt'
         
         success = error%type==0
