@@ -34,7 +34,7 @@ program shlex_tests
     call add_test(test_joined_4())
     call add_test(test_quotes_1())
         
-    do ms=1,200
+    do ms=1,224
         call add_test(test_mslex(ms))
         if (nfailed>0) stop 1
     end do
@@ -305,17 +305,14 @@ program shlex_tests
         if (.not.success) print *, 'MSLEX failed for case ',id,' pattern=',pattern
         if (.not.success) print *, 'N tokens = ',size(tokens),' expected # = ',size(results)
         if (.not.success) print *, 'error=',error%print()
-        if (.not.success) return
         do i = 1, size(tokens)
-            success = trim(tokens(i)) == trim(results(i))
+            success = success .and. trim(tokens(i)) == trim(results(i))
             if (.not.success) print *, 'token ',i,': <', tokens(i), '> expected=<', results(i),'>',' success=',success
             if (.not.success) print *, 'char tokens ',iachar(trim(tokens(i)))
             if (.not.success) print *, 'char exp    ',iachar(trim(results(i)))
             
             print *, 'tokens(i)=<',tokens(i),'> len=',len(tokens(i)),' char=',iachar(tokens(i)), 'len trim=',len_trim(tokens(i))
             print *, 'res   (i)=<',results(i),'> len=',len(results(i)),' chars=',iachar(results(i)),' len trim=',len_trim(results(i))
-            
-            
             
             if (.not.success) print *, 'error=',error%print()
             if (.not.success) print *, 'pattern=<',pattern,'>'

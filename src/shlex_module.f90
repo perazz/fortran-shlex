@@ -467,68 +467,7 @@ module shlex_module
 
     end function shlex_error
 
-    function parse_msvcrt_groups(groups) result(list)
-        type(mslex_group), optional, intent(in) :: groups(:)
-        type(shlex_token), allocatable :: list(:)
 
-        character(kind=SCK,len=:), allocatable :: buffer
-        integer :: i
-        logical :: quote_mode
-        integer :: n_slashes, n_quotes, magic_sum
-        logical :: slashes_odd
-
-        quote_mode = .false.        
-        allocate(list(0))
-        if (.not.present(groups)) return
-        if (size(groups)<=0) return
-
-        group_loop: do i = 1, size(groups)
-        
-            print *, 'group ',group_pretty_print(groups(i))
-        
-            if (len(groups(i)%spaces) > 0) then
-                
-                if (quote_mode) then
-                    print *, 'add <',groups(i)%spaces,'> due to quote mode'
-                    call yield(buffer,groups(i)%spaces)
-                elseif (allocated(buffer)) then
-                    if (len(buffer)>0) then 
-                        print *, 'return token <',buffer,'>'
-                        list = [list, new_token(TOKEN_WORD, buffer)]
-                        deallocate(buffer)
-                    endif
-                end if
-            endif
-
-            if (len(groups(i)%quotes) > 0) then
-                n_slashes   = len(groups(i)%slashes)
-                n_quotes    = len(groups(i)%quotes)
-                slashes_odd = mod(n_slashes, 2) /= 0
-                call yield(buffer,repeat('\', n_slashes / 2))
-                magic_sum   = n_quotes + merge(1, 0, quote_mode) + 2 * merge(1, 0, slashes_odd)
-                call yield(buffer,repeat('"', magic_sum / 3))
-                quote_mode  = mod(magic_sum, 3) == 1
-                
-                print *, 'slash=',n_slashes,'quot ',n_quotes,' odd=',slashes_odd,' sum=',magic_sum,' quotemode',quote_mode
-            endif
-
-            if (len(groups(i)%text) > 0) call yield(buffer,groups(i)%text)
-
-        end do group_loop
-
-        ! Always emit buffer (even if it's "")
-        if (allocated(buffer)) list = [list, new_token(TOKEN_WORD, buffer)]
-        
-        contains
-        
-           pure subroutine yield(buffer,text)
-               character(:), allocatable, intent(inout) :: buffer
-               character(*), intent(in) :: text
-               if (.not.allocated(buffer)) allocate(character(0) :: buffer)
-               buffer = buffer//text
-           end subroutine
-        
-    end function parse_msvcrt_groups
     
     pure integer function n_previous_escapes(this,pattern) result(prev)
         class(shlex_lexer), intent(in) :: this
@@ -742,6 +681,72 @@ module shlex_module
         
     end function scan_stream_msvcrt
 
+    function parse_msvcrt_groups(groups) result(list)
+        type(mslex_group), optional, intent(in) :: groups(:)
+        type(shlex_token), allocatable :: list(:)
+
+        character(kind=SCK,len=:), allocatable :: buffer
+        integer :: i
+        logical :: quote_mode
+        integer :: n_slashes, n_quotes, magic_sum
+        logical :: slashes_odd
+
+        quote_mode = .false.        
+        allocate(list(0))
+        if (.not.present(groups)) return
+        if (size(groups)<=0) return
+
+        group_loop: do i = 1, size(groups)
+        
+            print *, 'group ',group_pretty_print(groups(i))
+        
+            if (len(groups(i)%spaces) > 0) then
+                
+                if (quote_mode) then
+                    print *, 'add <',groups(i)%spaces,'> due to quote mode'
+                    call yield(buffer,groups(i)%spaces)
+                elseif (allocated(buffer)) then
+                    
+                    ! End of quote-delimited group: emit buffer (even if "")
+                    if (.not.allocated(buffer)) buffer = ""
+                    print *, 'return token <',buffer,'>'
+                    list = [list, new_token(TOKEN_WORD, buffer)]
+                    deallocate(buffer)
+                end if
+            endif
+
+            if (len(groups(i)%quotes) > 0) then
+                n_slashes   = len(groups(i)%slashes)
+                n_quotes    = len(groups(i)%quotes)
+                slashes_odd = mod(n_slashes, 2) /= 0
+                call yield(buffer,repeat('\', n_slashes / 2))
+                magic_sum   = n_quotes + merge(1, 0, quote_mode) + 2 * merge(1, 0, slashes_odd)
+                call yield(buffer,repeat('"', magic_sum / 3))
+                quote_mode  = mod(magic_sum, 3) == 1
+                
+                print *, 'slash=',n_slashes,'quot ',n_quotes,' odd=',slashes_odd,' sum=',magic_sum,' quotemode',quote_mode
+            endif
+
+            if (len(groups(i)%text) > 0) call yield(buffer,groups(i)%text)
+            
+        end do group_loop
+
+        ! Always emit buffer (even if it's "")
+        if (allocated(buffer)) then 
+            print *, 'return token <',buffer,'>'
+            list = [list, new_token(TOKEN_WORD, buffer)]
+        endif
+        
+        contains
+        
+           pure subroutine yield(buffer,text)
+               character(:), allocatable, intent(inout) :: buffer
+               character(*), intent(in) :: text
+               if (.not.allocated(buffer)) allocate(character(0) :: buffer)
+               buffer = buffer//text
+           end subroutine
+        
+    end function parse_msvcrt_groups
 
     type(shlex_token) function scan_stream(this,pattern,error) result(token)
         class(shlex_lexer), intent(inout) :: this
