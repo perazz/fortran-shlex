@@ -48,6 +48,8 @@ module shlex_module
         module procedure mslex_split_bool
         module procedure mslex_split_error
     end interface
+    
+    public :: mslex_quote
 
     ! Turn on verbosity for debugging
     logical, parameter :: DEBUG = .true.
@@ -547,6 +549,26 @@ module shlex_module
 
     end function mslex_error    
 
+    ! High level interface: return a list of tokens
+    function mslex_quote(pattern,error,keep_quotes) result(escaped)
+        character(*),      intent(in)  :: pattern
+        type(shlex_token), intent(out) :: error
+        logical, optional, intent(in)  :: keep_quotes
+        character(:), allocatable :: escaped
+
+        type(mslex_group), allocatable :: groups(:)
+        type(mslex_group) :: next
+        
+        escaped = ms_escape_quotes(pattern)
+        
+        print *, 'escaped=',escaped
+
+
+
+        return
+
+    end function mslex_quote
+
     type(mslex_group) function scan_stream_msvcrt(this, pattern, error) result(group)
         class(shlex_lexer), intent(inout) :: this
         character(kind=SCK,len=*), intent(in) :: pattern
@@ -729,16 +751,41 @@ module shlex_module
             list = [list, new_token(TOKEN_WORD, buffer)]
         endif
         
-        contains
-        
-           pure subroutine yield(buffer,text)
-               character(:), allocatable, intent(inout) :: buffer
-               character(*), intent(in) :: text
-               if (.not.allocated(buffer)) allocate(character(0) :: buffer)
-               buffer = buffer//text
-           end subroutine
-        
     end function parse_msvcrt_groups
+
+    function parse_escaping_groups(groups) result(escaped)
+        type(mslex_group), optional, intent(in) :: groups(:)
+        character(:), allocatable :: escaped
+
+        integer :: i
+
+        escaped = ""
+
+        if (.not. present(groups)) return
+
+        do i = 1, size(groups)
+            
+            print *, 'group ',i,':',group_pretty_print(groups(i))
+
+            if (len(groups(i)%quotes) > 0) then
+                ! Case: quotes are present
+                call yield(escaped, groups(i)%slashes)
+                call yield(escaped, groups(i)%slashes)
+                call yield(escaped, repeat('\"', len(groups(i)%quotes)))
+            else
+                ! Otherwise, just text
+                call yield(escaped, groups(i)%text)
+            end if
+        end do
+    end function parse_escaping_groups
+
+
+    pure subroutine yield(buffer,text)
+        character(:), allocatable, intent(inout) :: buffer
+        character(*), intent(in) :: text
+        if (.not.allocated(buffer)) allocate(character(0) :: buffer)
+        buffer = buffer//text
+    end subroutine yield
 
     type(shlex_token) function scan_stream(this,pattern,error) result(token)
         class(shlex_lexer), intent(inout) :: this
@@ -1077,6 +1124,64 @@ module shlex_module
         msg = s // ' | ' // bs // ' | ' // qs // ' | ' // tx
         
     end function group_pretty_print
+
+    ! Escape any quotes found in string by prefixing them with an appropriate
+    ! number of backslashes.
+        
+    pure function ms_escape_quotes(s) result(escaped)
+       character(len=*), intent(in) :: s
+       character(:), allocatable :: escaped
+       
+       integer :: next_quotes,total_quotes,slashes,bpos
+       type(shlex_lexer) :: lex
+       character(len=2*len(s)) :: buffer
+       
+       associate(pos=>lex%input_position, length=>lex%input_length)
+       
+       bpos = 0
+       call lex%new(LEXER_WINDOWS,s)
+       
+       do while (pos<length)
+        
+           pos = pos+1
+           
+           if (scan(s(pos:pos),DOUBLE_QUOTE)>0) then 
+            
+              ! Quote found! count how many follow 
+              next_quotes  = n_next_quotes(lex,s)
+              total_quotes = 1 + next_quotes              
+              slashes      = n_previous_escapes(lex,s)
+              
+              ! Escapes must be doubled
+              if (slashes>0) then 
+                  buffer(bpos+1:bpos+slashes) = repeat('\',slashes)
+                  bpos = bpos+slashes                 
+              end if
+              
+              ! Escape and add quotes
+              buffer(bpos+1:bpos+2*total_quotes) = repeat('\"',total_quotes)
+              bpos = bpos+2*total_quotes
+              
+              ! Update seek position 
+              pos = pos + next_quotes
+              
+           else
+            
+              ! Simple, text character
+              buffer(bpos+1:bpos+1) = s(pos:pos)
+              bpos = bpos+1
+            
+           end if        
+        
+       end do
+       
+       allocate(character(bpos) :: escaped)
+       if (bpos>0) escaped(1:bpos) = buffer(1:bpos)
+       
+       endassociate
+       
+    end function ms_escape_quotes
+        
 
 end module shlex_module
 
