@@ -109,13 +109,6 @@ module shlex_module
     integer, parameter :: STATE_QUOTING          = 5 ! Within a quoted string that does not support escaping ('...')
     integer, parameter :: STATE_COMMENT          = 6 ! Within a comment
 
-    ! Scanning modes
-    integer, parameter :: MS_START   = 0
-    integer, parameter :: MS_SPACES  = 1
-    integer, parameter :: MS_SLASHES = 2
-    integer, parameter :: MS_QUOTES  = 3
-    integer, parameter :: MS_TEXT    = 4
-
     type, public :: shlex_token
 
         integer :: type = TOKEN_UNKNOWN
@@ -560,7 +553,7 @@ module shlex_module
         type(shlex_token), intent(out) :: error
 
         character(kind=SCK) :: c
-        integer :: state, start, in_group
+        integer :: start, in_group
         
         associate(pos => this%input_position)
 
@@ -575,7 +568,6 @@ module shlex_module
             error = new_token(NO_ERROR, "SUCCESS")
         end if
         
-        state = MS_START
         in_group = 0
 
         do while (pos < this%input_length)
@@ -789,19 +781,9 @@ module shlex_module
                       case (CHAR_NONESCAPING_QUOTE)
                         
                          ! Quote with no previous escapes (start) is necessarily a quoting character
-                         if (this%lexer==LEXER_WINDOWS) then 
-                            start_quote = ms_start_quoting(this, pattern, value, error)
-                         else
-                            start_quote = .true.
-                         end if
-                         
-                         if (DEBUG) print *, 'Quote detected, start quoting = ',start_quote
-                         
-                         if (start_quote) then 
-                             token_type = TOKEN_QUOTED_WORD
-                             state      = STATE_QUOTING
-                             if (this%keep_quotes) value = value//next_char                            
-                         endif
+                         token_type = TOKEN_QUOTED_WORD
+                         state      = STATE_QUOTING
+                         if (this%keep_quotes) value = value//next_char                            
                                                
                       case (CHAR_ESCAPE) ! posix only                        
                          token_type = TOKEN_WORD
@@ -826,25 +808,9 @@ module shlex_module
                          state = STATE_QUOTING_ESCAPING
                          if (this%keep_quotes) value = value//next_char
                       case (CHAR_NONESCAPING_QUOTE)
-                        
-                         if (this%lexer==LEXER_WINDOWS) then 
-                             prev_escapes = n_previous_escapes(this,pattern)
-                             start_quote = ms_start_quoting(this, pattern, value, error)
-                             
-                             if (start_quote) then 
-                                 value = value(1:len(value) - prev_escapes/2)
-                                 state = STATE_QUOTING
-                                 if (this%keep_quotes) value = value // next_char                                
-                             else
-                                 value = value // next_char
-                             endif
-                             
-                         else
-                             start_quote = .true.   
-                             state = STATE_QUOTING
-                             if (this%keep_quotes) value = value // next_char                             
-                         end if
-                        
+                         start_quote = .true.   
+                         state = STATE_QUOTING
+                         if (this%keep_quotes) value = value // next_char                             
                       case (CHAR_ESCAPE)
                          state = STATE_ESCAPING
                       case default
@@ -906,68 +872,27 @@ module shlex_module
 
                       case (CHAR_EOF)
                         
-                         if (this%lexer == LEXER_WINDOWS) then 
-                             ! Windows is very forgiving: no need to close the quote
-                             if (this%keep_quotes) value = value // DOUBLE_QUOTE
-                             if (DEBUG) print *, 'Unfinished quote... <', value, '>'
-                         else
-                             ! POSIX requires closing quote
-                             error = new_token(SYNTAX_ERROR, "END-OF-FILE when expecting closing quote")
-                         end if
+                         ! POSIX requires closing quote
+                         error = new_token(SYNTAX_ERROR, "END-OF-FILE when expecting closing quote")
                          token = new_token(token_type, value)
                          return
 
                       case (CHAR_NONESCAPING_QUOTE)
 
-                         if (this%lexer == LEXER_WINDOWS) then 
-                             next_quotes = n_next_quotes(this, pattern)
-                             if (DEBUG) print *, 'next quotes: ', next_quotes
-                         else
-                             next_quotes = 0
+                         ! Single quote -> end quoting
+                         state = STATE_INWORD
+                         if (this%keep_quotes) value = value // next_char
+
+                         ! Check for immediate EOF or whitespace -> return token early
+                         if (this%input_position >= this%input_length) then
+                            token = new_token(token_type, value)
+                            return
                          end if
 
-                         if (next_quotes > 0) then 
-                            if (mod(next_quotes + 1, 2) == 0) then
-                                ! EVEN: stay in quoting
-                                value = value // repeat(next_char, (next_quotes + 1) / 2)
-                                this%input_position = this%input_position + next_quotes
-                                if (DEBUG) print *, ' remain in quoting'
-                            else
-                                ! ODD: last quote ends quoting
-                                value = value // repeat(next_char, next_quotes / 2)
-                                this%input_position = this%input_position + next_quotes
-                                state = STATE_INWORD
-                                if (this%keep_quotes) value = value // next_char
-                                if (DEBUG) print *, ' end of quoting, go back to word'
-
-                                ! Check for immediate EOF or whitespace -> return token early
-                                if (this%input_position >= this%input_length) then
-                                   token = new_token(token_type, value)
-                                   print *, 'EOF reached'
-                                   return
-                                elseif (pattern(this%input_position+1:this%input_position+1) == ' ') then
-                                   print *, 'end quoting due to whitespace'
-                                   token = new_token(token_type, value)
-                                   return
-                                end if
-                            end if
-
-                         else
-                             ! Single quote -> end quoting
-                             state = STATE_INWORD
-                             if (this%keep_quotes) value = value // next_char
-
-                             ! Check for immediate EOF or whitespace -> return token early
-                             if (this%input_position >= this%input_length) then
-                                token = new_token(token_type, value)
-                                return
-                             end if
-
-                             if (this%input_position < this%input_length) then
-                                 if (pattern(this%input_position+1:this%input_position+1) == ' ') then
-                                     token = new_token(token_type, value)
-                                     return
-                                 end if
+                         if (this%input_position < this%input_length) then
+                             if (pattern(this%input_position+1:this%input_position+1) == ' ') then
+                                 token = new_token(token_type, value)
+                                 return
                              end if
                          end if
 
