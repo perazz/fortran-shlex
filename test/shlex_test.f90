@@ -296,7 +296,7 @@ program shlex_tests
         
         print "(///,'Parsing pattern: <',a,'>'///)", pattern
 
-        tokens = ms_split(pattern, error)
+        tokens = ms_split(pattern, like_cmd=.false., error=error)
         
         success = error%type==0
         
@@ -330,45 +330,38 @@ program shlex_tests
         
         integer :: i
         type(shlex_token) :: error   
-        character(:), allocatable :: pattern,results(:),tokens(:),escaped
+        character(:), allocatable :: pattern,results(:),tokens(:),quoted
         
         ! Get test 
         call get_mslex_pretty_example(id,pattern,results)
         
+        print '(///a///)', pattern
         
+        quoted = mslex_quote(pattern)
         
-        pattern = '\\\"abc\\\\\\\"'
+        success = quoted==results(1)
+        if (.not.success) then 
+            print *, 'pattern=',pattern
+            print *, 'quoted =',quoted
+            print *, 'expect =',results(1)
+            return
+        end if
         
-        print "(///,'Parsing pattern: <',a,'>'///)", pattern
-
-        escaped = mslex_quote(pattern)
-        print *, 'escaped = <'//escaped//'>'
-        stop 'ttt'
+        tokens = ms_split(results(1), error=error)
         
-        success = error%type==0
+        success = error%type==0 .and.  size(tokens)==1
         
         if (.not.success) then 
             print *, 'MSLEX parsing failed for case ',id,' pattern=',pattern
+            print *, 'size tokens (should be 1) ',size(tokens)
+            print *, 'token 1 ',tokens(1)
+            print *, 'pattern ',pattern
             print *, 'error=',error%print()
             return
         endif        
-        success = size(tokens) == size(results)        
-        if (.not.success) print *, 'MSLEX failed for case ',id,' pattern=',pattern
-        if (.not.success) print *, 'N tokens = ',size(tokens),' expected # = ',size(results)
-        if (.not.success) print *, 'error=',error%print()
-        do i = 1, size(tokens)
-            success = success .and. trim(tokens(i)) == trim(results(i))
-            if (.not.success) print *, 'token ',i,': <', tokens(i), '> expected=<', results(i),'>',' success=',success
-            if (.not.success) print *, 'char tokens ',iachar(trim(tokens(i)))
-            if (.not.success) print *, 'char exp    ',iachar(trim(results(i)))
-            
-            print *, 'tokens(i)=<',tokens(i),'> len=',len(tokens(i)),' char=',iachar(tokens(i)), 'len trim=',len_trim(tokens(i))
-            print *, 'res   (i)=<',results(i),'> len=',len(results(i)),' chars=',iachar(results(i)),' len trim=',len_trim(results(i))
-            
-            if (.not.success) print *, 'error=',error%print()
-            if (.not.success) print *, 'pattern=<',pattern,'>'
-            if (.not.success) return
-        end do
+    
+        
+        
     end function test_mslex_pretty
 
     subroutine get_mslex_test(id,pattern,expected_result)

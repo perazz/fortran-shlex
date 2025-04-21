@@ -88,7 +88,8 @@ module shlex_module
     character(kind=SCK,len=*), parameter :: DOUBLE_QUOTE  = '"'
     character(kind=SCK,len=*), parameter :: SINGLE_QUOTE  = "'"
     character(kind=SCK,len=*), parameter :: ESCAPE_CHARS  = "\"
-    character(kind=SCK,len=*), parameter :: COMMENT_CHARS = "#"   
+    character(kind=SCK,len=*), parameter :: COMMENT_CHARS = "#"
+    character(kind=SCK,len=*), parameter :: CARET_CHAR    = "^"   
     
     character(kind=SCK,len=*), parameter :: META_CHARS    = DOUBLE_QUOTE//'^&|<>()%!'
     character(kind=SCK,len=*), parameter :: META_OR_SPACE = SPACE_CHARS//META_CHARS
@@ -273,26 +274,41 @@ module shlex_module
     end function split_error
     
     ! High level interface: return a list of strings, with error type
-    function mslex_split_bool(pattern,success) result(list)
+    function mslex_split_bool(pattern,like_cmd,success) result(list)
         character(*),      intent(in)  :: pattern
+        logical, optional, intent(in)  :: like_cmd
         logical, optional, intent(out) :: success
         character(kind=SCK,len=:), allocatable :: list(:)
         type(shlex_token) :: error
 
-        list = mslex_split_error(pattern,error)
+        list = mslex_split_error(pattern,like_cmd,error)
         if (present(success)) success = error%type==NO_ERROR
 
     end function mslex_split_bool
 
     ! High level interface: return a list of strings
-    function mslex_split_error(pattern,error) result(list)
+    function mslex_split_error(pattern,like_cmd,error) result(list)
         character(*),      intent(in)  :: pattern
+        logical, optional, intent(in)  :: like_cmd
         type(shlex_token), intent(out) :: error
         character(kind=SCK,len=:), allocatable :: list(:)
-
+        
+        logical :: cmd
+        character(kind=SCK,len=:), allocatable :: nocaret
         type(shlex_token), allocatable :: tokens(:)
+        
+        cmd = .true.
+        if (present(like_cmd)) cmd = like_cmd
+        
+        if (cmd) then 
+            print *, pattern
+            nocaret = ms_strip_carets_like_cmd(pattern)
+            print *, 'nocaret=',nocaret
+            tokens = mslex(nocaret,error)
+        else
+            tokens = mslex(pattern,error)
+        end if
 
-        tokens = mslex(pattern,error)
         call tokens_to_strings(tokens,list)
 
     end function mslex_split_error    
@@ -1274,7 +1290,6 @@ module shlex_module
               ! Quote found! Escape it with '\^"'
               buffer(bpos+1:bpos+3) = '\^"'
               bpos = bpos+3            
-              in_block = .false.
             
            elseif (scan(s(pos:pos),'%!')>0) then  
             
@@ -1284,13 +1299,12 @@ module shlex_module
               ! Marker found! Escape it with '^'
               buffer(bpos+1:bpos+2) = '^'//s(pos:pos)
               bpos = bpos+2
-              in_block = .false.
                             
            else
             
               ! Normal character block
               if (.not.in_block) then 
-                 start = pos
+                 start    = pos
                  in_block = .true.
               end if
             
@@ -1299,7 +1313,7 @@ module shlex_module
        end do
        
        ! Flush previous block
-       call flush_block(in_block,start,length,s,buffer,bpos)
+       call flush_block(in_block,start,length+1,s,buffer,bpos)
        
        allocate(character(len=bpos) :: wrapped)
        if (bpos>0) wrapped(1:bpos) = buffer(1:bpos)
@@ -1323,14 +1337,17 @@ module shlex_module
              blk = s(start:pos-1)
              n = len(blk)
              
-             if (scan(blk,META_OR_SPACE)>0 .or. blk(n:n)=='\') then 
-                 quoted = ms_wrap_in_quotes(blk)
-                 buffer(bpos+1:bpos+len(quoted)) = quoted
-                 bpos = bpos+len(quoted)
-             else   
-                 buffer(bpos+1:bpos+n) = blk
-                 bpos = bpos+n                
-             end if
+             if (n>0) then 
+                 if (scan(blk,META_OR_SPACE)>0 .or. blk(n:n)=='\') then 
+                     quoted = ms_wrap_in_quotes(blk)
+                     
+                     buffer(bpos+1:bpos+len(quoted)) = quoted
+                     bpos = bpos+len(quoted)
+                 else   
+                     buffer(bpos+1:bpos+n) = blk
+                     bpos = bpos+n                
+                 end if                 
+             endif
              
           end if   
           
@@ -1363,7 +1380,6 @@ module shlex_module
               bpos = bpos+1
               buffer(bpos:bpos) = '^'
               
-           
            endif 
             
            bpos = bpos+1 
@@ -1377,6 +1393,57 @@ module shlex_module
        endassociate
        
     end function ms_alternative_quote_for_cmd
+    
+    pure function ms_strip_carets_like_cmd(s) result(unescaped)
+        character(kind=SCK,len=*), intent(in), target :: s
+        character(kind=SCK,len=:), allocatable :: unescaped
+
+        type(shlex_lexer) :: lex
+        logical :: in_quote
+        integer :: bpos, pos, length
+        character(len=2*len(s)) :: buffer
+        character :: c
+
+        associate(pos => lex%input_position, length => lex%input_length)
+
+        call lex%new(LEXER_WINDOWS, s)
+        bpos = 0
+        in_quote = .false.
+
+        do while (pos < length)
+            pos = pos + 1
+            c = s(pos:pos)
+
+            if (c == DOUBLE_QUOTE) then
+                in_quote = .not. in_quote
+                bpos = bpos + 1
+                buffer(bpos:bpos) = DOUBLE_QUOTE
+
+            elseif (c == CARET_CHAR) then
+                if (in_quote) then
+                    bpos = bpos + 1
+                    buffer(bpos:bpos) = c
+                else
+                    ! Outside quotes: consume next character if present
+                    if (pos < length) then
+                        pos = pos + 1
+                        bpos = bpos + 1
+                        buffer(bpos:bpos) = s(pos:pos)
+                    end if
+                    ! Else: caret at end -> discard
+                end if
+
+            else
+                bpos = bpos + 1
+                buffer(bpos:bpos) = c
+            end if
+        end do
+
+        allocate(character(len=bpos) :: unescaped)
+        if (bpos > 0) unescaped = buffer(1:bpos)
+
+        endassociate
+    end function ms_strip_carets_like_cmd
     
      
 end module shlex_module
