@@ -36,7 +36,7 @@ program shlex_tests
         
     do ms=1,200
         call add_test(test_mslex(ms))
-        !if (nfailed>0) stop 1
+        if (nfailed>0) stop 1
     end do
     
 
@@ -290,7 +290,7 @@ program shlex_tests
         ! Get test 
         call get_mslex_test(id,pattern,results)
         
-        print "(///,'Parsing pattern: ',a///)", pattern
+        print "(///,'Parsing pattern: <',a,'>'///)", pattern
 
         tokens = ms_split(pattern, error)
         
@@ -303,6 +303,7 @@ program shlex_tests
         endif        
         success = size(tokens) == size(results)        
         if (.not.success) print *, 'MSLEX failed for case ',id,' pattern=',pattern
+        if (.not.success) print *, 'N tokens = ',size(tokens),' expected # = ',size(results)
         if (.not.success) print *, 'error=',error%print()
         if (.not.success) return
         do i = 1, size(tokens)
