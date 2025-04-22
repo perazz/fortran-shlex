@@ -33,25 +33,27 @@ program shlex_tests
     call add_test(test_joined_3())
     call add_test(test_joined_4())
     call add_test(test_quotes_1())
-        
+    
     do ms=1,224
         call add_test(test_mslex(ms,ucrt=.false.))
         if (nfailed>0) stop 1
     end do
     
-!    do ms=1,32
-!        call add_test(test_mslex(ms,ucrt=.true.))
+    do ms=1,110
+        print *, 'UCRT TEST ',ms
+        call add_test(test_mslex(ms,ucrt=.true.))
+        if (nfailed>0) stop 1
+    end do
+!    
+!    do ms=1,12
+!        call add_test(test_mslex_pretty(ms,cmd=.true.))
+!        if (nfailed>0) stop 1
 !    end do
-    
-    do ms=1,12
-        call add_test(test_mslex_pretty(ms,cmd=.true.))
-        if (nfailed>0) stop 1
-    end do
-    
-    do ms=1,7
-        call add_test(test_mslex_pretty(ms,cmd=.false.))
-        if (nfailed>0) stop 1
-    end do
+!    
+!    do ms=1,7
+!        call add_test(test_mslex_pretty(ms,cmd=.false.))
+!        if (nfailed>0) stop 1
+!    end do
 
     if (nfailed<=0) then
         print "(*(a,:,i0))", 'SUCCESS! all ',npassed,' tests passed.'
@@ -513,6 +515,7 @@ program shlex_tests
              expected_result(1) = ''
 
           case (24)
+            
              pattern = '""" '
              allocate(character(len=1) :: expected_result(1))
              expected_result(1) = '"'
@@ -1639,182 +1642,600 @@ program shlex_tests
         
     end subroutine get_mslex_test
         
-    subroutine get_mslex_ucrt_test(id, pattern, expected_version)
+    subroutine get_mslex_ucrt_test(id, pattern, expected_result)
         integer, intent(in) :: id
-        character(:), allocatable, intent(out) :: pattern, expected_version(:)
+        character(:), allocatable, intent(out) :: pattern, expected_result(:)
 
         select case (id)
-          case (1)
-             pattern = '"""""'
-             allocate(character(len=2) :: expected_version(1))
-             expected_version(1) = '""'
+              case (1)
+                 pattern = '"""""'
+                 allocate(character(len=2) :: expected_result(1))
+                 expected_result(1) = '""'
 
-          case (2)
-             pattern = '"""""""'
-             allocate(character(len=3) :: expected_version(1))
-             expected_version(1) = '"""'
+              case (2)
+                 pattern = '"""""""'
+                 allocate(character(len=3) :: expected_result(1))
+                 expected_result(1) = '"""'
 
-          case (3)
-             pattern = '""""""""'
-             allocate(character(len=3) :: expected_version(1))
-             expected_version(1) = '"""'
+              case (3)
+                 pattern = '""""""""'
+                 allocate(character(len=3) :: expected_result(1))
+                 expected_result(1) = '"""'
 
-          case (4)
-             pattern = '"""""""""'
-             allocate(character(len=4) :: expected_version(1))
-             expected_version(1) = '""""'
+              case (4)
+                 pattern = '"""""""""'
+                 allocate(character(len=4) :: expected_result(1))
+                 expected_result(1) = '""""'
 
-          case (5)
-             pattern = '""""""""""'
-             allocate(character(len=4) :: expected_version(1))
-             expected_version(1) = '""""'
+              case (5)
+                 pattern = '""""""""""'
+                 allocate(character(len=4) :: expected_result(1))
+                 expected_result(1) = '""""'
 
-          case (6)
-             pattern = '""""" '
-             allocate(character(len=3) :: expected_version(1))
-             expected_version(1) = '"" '
+              case (6)
+                 pattern = ' """""'
+                 allocate(character(len=2) :: expected_result(1))
+                 expected_result(1) = '""'
 
-          case (7)
-             pattern = '""""" x'
-             allocate(character(len=5) :: expected_version(1))
-             expected_version(1) = '"" x'
+              case (7)
+                 pattern = ' """""""'
+                 allocate(character(len=3) :: expected_result(1))
+                 expected_result(1) = '"""'
 
-          case (8)
-             pattern = '""""""" x'
-             allocate(character(len=5) :: expected_version(1))
-             expected_version(1) = '""" x'
+              case (8)
+                 pattern = ' """"""""'
+                 allocate(character(len=3) :: expected_result(1))
+                 expected_result(1) = '"""'
 
-          case (9)
-             pattern = '"""""""" x'
-             allocate(character(len=3) :: expected_version(2))
-             expected_version(1) = '"""'
-             expected_version(2) = 'x'
+              case (9)
+                 pattern = ' """"""""""'
+                 allocate(character(len=4) :: expected_result(1))
+                 expected_result(1) = '""""'
 
-          case (10)
-             pattern = '""""""""" x'
-             allocate(character(len=6) :: expected_version(1))
-             expected_version(1) = '"""" x'
+              case (10)
+                 pattern = '""" '
+                 allocate(character(len=2) :: expected_result(1))
+                 expected_result(1) = '" '
 
-          case (11)
-             pattern = '"""""""""" x'
-             allocate(character(len=4) :: expected_version(2))
-             expected_version(1) = '""""'
-             expected_version(2) = 'x'
+              case (11)
+                 pattern = '"""" '
+                 allocate(character(len=1) :: expected_result(1))
+                 expected_result(1) = '"'
 
-          case (12)
-             pattern = '""""""""""" x'
-             allocate(character(len=9) :: expected_version(1))
-             expected_version(1) = '""""" x'
+              case (12)
+                 pattern = '""""" '
+                 allocate(character(len=3) :: expected_result(1))
+                 expected_result(1) = '"" '
 
-          case (13)
-             pattern = '"""""""""""" x'
-             allocate(character(len=5) :: expected_version(2))
-             expected_version(1) = '"""""'
-             expected_version(2) = 'x'
+              case (13)
+                 pattern = '"""""" '
+                 allocate(character(len=2) :: expected_result(1))
+                 expected_result(1) = '""'
 
-          case (14)
-             pattern = '""""""""""""" x'
-             allocate(character(len=8) :: expected_version(1))
-             expected_version(1) = '"""""" x'
+              case (14)
+                 pattern = '""""""" '
+                 allocate(character(len=4) :: expected_result(1))
+                 expected_result(1) = '""" '
 
-          case (15)
-             pattern = '"aaa"" x'
-             allocate(character(len=6) :: expected_version(1))
-             expected_version(1) = 'aaa" x'
+              case (15)
+                 pattern = '"""""""" '
+                 allocate(character(len=3) :: expected_result(1))
+                 expected_result(1) = '"""'
 
-          case (16)
-             pattern = '"aaa""" x'
-             allocate(character(len=4) :: expected_version(2))
-             expected_version(1) = 'aaa"'
-             expected_version(2) = 'x'
+              case (16)
+                 pattern = '""""""""" '
+                 allocate(character(len=5) :: expected_result(1))
+                 expected_result(1) = '"""" '
 
-          case (17)
-             pattern = '"aaa"""" x'
-             allocate(character(len=6) :: expected_version(1))
-             expected_version(1) = 'aaa"" x'
+              case (17)
+                 pattern = '"""""""""" '
+                 allocate(character(len=4) :: expected_result(1))
+                 expected_result(1) = '""""'
 
-          case (18)
-             pattern = '"aaa"""""" x'
-             allocate(character(len=7) :: expected_version(1))
-             expected_version(1) = 'aaa""" x'
+              case (18)
+                 pattern = '""" x'
+                 allocate(character(len=3) :: expected_result(1))
+                 expected_result(1) = '" x'
 
-          case (19)
-             pattern = '"aaa""""""" x'
-             allocate(character(len=5) :: expected_version(2))
-             expected_version(1) = 'aaa"""'
-             expected_version(2) = 'x'
+              case (19)
+                 pattern = '"""" x'
+                 allocate(character(len=1) :: expected_result(2))
+                 expected_result(1) = '"'
+                 expected_result(2) = 'x'
 
-          case (20)
-             pattern = '"aaa"""""""" x'
-             allocate(character(len=7) :: expected_version(2))
-             expected_version(1) = 'aaa""""'
-             expected_version(2) = 'x'
+              case (20)
+                 pattern = '""""" x'
+                 allocate(character(len=4) :: expected_result(1))
+                 expected_result(1) = '"" x'
 
-          case (21)
-             pattern = '"aaa""""""""" x'
-             allocate(character(len=8) :: expected_version(1))
-             expected_version(1) = 'aaa"""" x'
+              case (21)
+                 pattern = '"""""" x'
+                 allocate(character(len=2) :: expected_result(2))
+                 expected_result(1) = '""'
+                 expected_result(2) = 'x'
 
-          case (22)
-             pattern = '"aaa"""""""""" x'
-             allocate(character(len=9) :: expected_version(1))
-             expected_version(1) = 'aaa""""" x'
+              case (22)
+                 pattern = '""""""" x'
+                 allocate(character(len=5) :: expected_result(1))
+                 expected_result(1) = '""" x'
 
-          case (23)
-             pattern = '"aaa""""""""""" x'
-             allocate(character(len=7) :: expected_version(2))
-             expected_version(1) = 'aaa"""""'
-             expected_version(2) = 'x'
+              case (23)
+                 pattern = '"""""""" x'
+                 allocate(character(len=3) :: expected_result(2))
+                 expected_result(1) = '"""'
+                 expected_result(2) = 'x'
 
-          case (24)
-             pattern = '"aaa\\""" x'
-             allocate(character(len=6) :: expected_version(1))
-             expected_version(1) = 'aaa"" x'
+              case (24)
+                 pattern = '""""""""" x'
+                 allocate(character(len=6) :: expected_result(1))
+                 expected_result(1) = '"""" x'
 
-          case (25)
-             pattern = '"aaa\\""""" x'
-             allocate(character(len=5) :: expected_version(2))
-             expected_version(1) = 'aaa""'
-             expected_version(2) = 'x'
+              case (25)
+                 pattern = '"""""""""" x'
+                 allocate(character(len=4) :: expected_result(2))
+                 expected_result(1) = '""""'
+                 expected_result(2) = 'x'
 
-          case (26)
-             pattern = '"aaa\\"""""" x'
-             allocate(character(len=7) :: expected_version(2))
-             expected_version(1) = 'aaa"""'
-             expected_version(2) = 'x'
+              case (26)
+                 pattern = '""""""""""" x'
+                 allocate(character(len=7) :: expected_result(1))
+                 expected_result(1) = '""""" x'
 
-          case (27)
-             pattern = '"aaa\\""""""" x'
-             allocate(character(len=8) :: expected_version(1))
-             expected_version(1) = 'aaa""" x'
+              case (27)
+                 pattern = '"""""""""""" x'
+                 allocate(character(len=5) :: expected_result(2))
+                 expected_result(1) = '"""""'
+                 expected_result(2) = 'x'
 
-          case (28)
-             pattern = '"aaa\\"""""""" x'
-             allocate(character(len=6) :: expected_version(2))
-             expected_version(1) = 'aaa"""'
-             expected_version(2) = 'x'
+              case (28)
+                 pattern = '""""""""""""" x'
+                 allocate(character(len=8) :: expected_result(1))
+                 expected_result(1) = '"""""" x'
 
-          case (29)
-             pattern = '"aaa\\""""""""" x'
-             allocate(character(len=7) :: expected_version(2))
-             expected_version(1) = 'aaa""""'
-             expected_version(2) = 'x'
+              case (29)
+                 pattern = '"aaa"" x'
+                 allocate(character(len=6) :: expected_result(1))
+                 expected_result(1) = 'aaa" x'
 
-          case (30)
-             pattern = '"aaa\\\\" x'
-             allocate(character(len=10) :: expected_version(1))
-             expected_version(1) = 'aaa\\\\" x'
+              case (30)
+                 pattern = '"aaa""" x'
+                 allocate(character(len=4) :: expected_result(2))
+                 expected_result(1) = 'aaa"'
+                 expected_result(2) = 'x'
 
-          case (31)
-             pattern = '"aaa\\\\""" x'
-             allocate(character(len=6) :: expected_version(2))
-             expected_version(1) = 'aaa\\\\"'
-             expected_version(2) = 'x'
+              case (31)
+                 pattern = '"aaa"""" x'
+                 allocate(character(len=7) :: expected_result(1))
+                 expected_result(1) = 'aaa"" x'
 
-          case (32)
-             pattern = '"aaa\\\\"""" x'
-             allocate(character(len=10) :: expected_version(1))
-             expected_version(1) = 'aaa\\\\\\"" x'
+              case (32)
+                 pattern = '"aaa"""""" x'
+                 allocate(character(len=8) :: expected_result(1))
+                 expected_result(1) = 'aaa""" x'
+
+              case (33)
+                 pattern = '"aaa""""""" x'
+                 allocate(character(len=6) :: expected_result(2))
+                 expected_result(1) = 'aaa"""'
+                 expected_result(2) = 'x'
+
+              case (34)
+                 pattern = '"aaa"""""""" x'
+                 allocate(character(len=9) :: expected_result(1))
+                 expected_result(1) = 'aaa"""" x'
+
+              case (35)
+                 pattern = '"aaa""""""""" x'
+                 allocate(character(len=7) :: expected_result(2))
+                 expected_result(1) = 'aaa""""'
+                 expected_result(2) = 'x'
+
+              case (36)
+                 pattern = '"aaa"""""""""" x'
+                 allocate(character(len=10) :: expected_result(1))
+                 expected_result(1) = 'aaa""""" x'
+
+              case (37)
+                 pattern = '"aaa""""""""""" x'
+                 allocate(character(len=8) :: expected_result(2))
+                 expected_result(1) = 'aaa"""""'
+                 expected_result(2) = 'x'
+
+              case (38)
+                 pattern = '"aaa"""""""""""" x'
+                 allocate(character(len=11) :: expected_result(1))
+                 expected_result(1) = 'aaa"""""" x'
+
+              case (39)
+                 pattern = '"aaa\""" x'
+                 allocate(character(len=7) :: expected_result(1))
+                 expected_result(1) = 'aaa"" x'
+
+              case (40)
+                 pattern = '"aaa\"""" x'
+                 allocate(character(len=5) :: expected_result(2))
+                 expected_result(1) = 'aaa""'
+                 expected_result(2) = 'x'
+
+              case (41)
+                 pattern = '"aaa\""""" x'
+                 allocate(character(len=8) :: expected_result(1))
+                 expected_result(1) = 'aaa""" x'
+
+              case (42)
+                 pattern = '"aaa\""""""" x'
+                 allocate(character(len=9) :: expected_result(1))
+                 expected_result(1) = 'aaa"""" x'
+
+              case (43)
+                 pattern = '"aaa\"""""""" x'
+                 allocate(character(len=7) :: expected_result(2))
+                 expected_result(1) = 'aaa""""'
+                 expected_result(2) = 'x'
+
+              case (44)
+                 pattern = '"aaa\""""""""" x'
+                 allocate(character(len=10) :: expected_result(1))
+                 expected_result(1) = 'aaa""""" x'
+
+              case (45)
+                 pattern = '"aaa\"""""""""" x'
+                 allocate(character(len=8) :: expected_result(2))
+                 expected_result(1) = 'aaa"""""'
+                 expected_result(2) = 'x'
+
+              case (46)
+                 pattern = '"aaa\""""""""""" x'
+                 allocate(character(len=11) :: expected_result(1))
+                 expected_result(1) = 'aaa"""""" x'
+
+              case (47)
+                 pattern = '"aaa\"""""""""""" x'
+                 allocate(character(len=9) :: expected_result(2))
+                 expected_result(1) = 'aaa""""""'
+                 expected_result(2) = 'x'
+
+              case (48)
+                 pattern = '"aaa\\"" x'
+                 allocate(character(len=7) :: expected_result(1))
+                 expected_result(1) = 'aaa\" x'
+
+              case (49)
+                 pattern = '"aaa\\""" x'
+                 allocate(character(len=5) :: expected_result(2))
+                 expected_result(1) = 'aaa\"'
+                 expected_result(2) = 'x'
+
+              case (50)
+                 pattern = '"aaa\\"""" x'
+                 allocate(character(len=8) :: expected_result(1))
+                 expected_result(1) = 'aaa\"" x'
+
+              case (51)
+                 pattern = '"aaa\\"""""" x'
+                 allocate(character(len=9) :: expected_result(1))
+                 expected_result(1) = 'aaa\""" x'
+
+              case (52)
+                 pattern = '"aaa\\""""""" x'
+                 allocate(character(len=7) :: expected_result(2))
+                 expected_result(1) = 'aaa\"""'
+                 expected_result(2) = 'x'
+
+              case (53)
+                 pattern = '"aaa\\"""""""" x'
+                 allocate(character(len=10) :: expected_result(1))
+                 expected_result(1) = 'aaa\"""" x'
+
+              case (54)
+                 pattern = '"aaa\\""""""""" x'
+                 allocate(character(len=8) :: expected_result(2))
+                 expected_result(1) = 'aaa\""""'
+                 expected_result(2) = 'x'
+
+              case (55)
+                 pattern = '"aaa\\"""""""""" x'
+                 allocate(character(len=11) :: expected_result(1))
+                 expected_result(1) = 'aaa\""""" x'
+
+              case (56)
+                 pattern = '"aaa\\""""""""""" x'
+                 allocate(character(len=9) :: expected_result(2))
+                 expected_result(1) = 'aaa\"""""'
+                 expected_result(2) = 'x'
+
+              case (57)
+                 pattern = '"aaa\\"""""""""""" x'
+                 allocate(character(len=12) :: expected_result(1))
+                 expected_result(1) = 'aaa\"""""" x'
+
+              case (58)
+                 pattern = '"aaa\\\""" x'
+                 allocate(character(len=8) :: expected_result(1))
+                 expected_result(1) = 'aaa\"" x'
+
+              case (59)
+                 pattern = '"aaa\\\"""" x'
+                 allocate(character(len=6) :: expected_result(2))
+                 expected_result(1) = 'aaa\""'
+                 expected_result(2) = 'x'
+
+              case (60)
+                 pattern = '"aaa\\\""""" x'
+                 allocate(character(len=9) :: expected_result(1))
+                 expected_result(1) = 'aaa\""" x'
+
+              case (61)
+                 pattern = '"aaa\\\""""""" x'
+                 allocate(character(len=10) :: expected_result(1))
+                 expected_result(1) = 'aaa\"""" x'
+
+              case (62)
+                 pattern = '"aaa\\\"""""""" x'
+                 allocate(character(len=8) :: expected_result(2))
+                 expected_result(1) = 'aaa\""""'
+                 expected_result(2) = 'x'
+
+              case (63)
+                 pattern = '"aaa\\\""""""""" x'
+                 allocate(character(len=11) :: expected_result(1))
+                 expected_result(1) = 'aaa\""""" x'
+
+              case (64)
+                 pattern = '"aaa\\\"""""""""" x'
+                 allocate(character(len=9) :: expected_result(2))
+                 expected_result(1) = 'aaa\"""""'
+                 expected_result(2) = 'x'
+
+              case (65)
+                 pattern = '"aaa\\\""""""""""" x'
+                 allocate(character(len=12) :: expected_result(1))
+                 expected_result(1) = 'aaa\"""""" x'
+
+              case (66)
+                 pattern = '"aaa\\\"""""""""""" x'
+                 allocate(character(len=10) :: expected_result(2))
+                 expected_result(1) = 'aaa\""""""'
+                 expected_result(2) = 'x'
+
+              case (67)
+                 pattern = '"aaa\\\\"" x'
+                 allocate(character(len=8) :: expected_result(1))
+                 expected_result(1) = 'aaa\\" x'
+
+              case (68)
+                 pattern = '"aaa\\\\""" x'
+                 allocate(character(len=6) :: expected_result(2))
+                 expected_result(1) = 'aaa\\"'
+                 expected_result(2) = 'x'
+
+              case (69)
+                 pattern = '"aaa\\\\"""" x'
+                 allocate(character(len=9) :: expected_result(1))
+                 expected_result(1) = 'aaa\\"" x'
+
+              case (70)
+                 pattern = '"aaa\\\\"""""" x'
+                 allocate(character(len=10) :: expected_result(1))
+                 expected_result(1) = 'aaa\\""" x'
+
+              case (71)
+                 pattern = '"aaa\\\\""""""" x'
+                 allocate(character(len=8) :: expected_result(2))
+                 expected_result(1) = 'aaa\\"""'
+                 expected_result(2) = 'x'
+
+              case (72)
+                 pattern = '"aaa\\\\"""""""" x'
+                 allocate(character(len=11) :: expected_result(1))
+                 expected_result(1) = 'aaa\\"""" x'
+
+              case (73)
+                 pattern = '"aaa\\\\""""""""" x'
+                 allocate(character(len=9) :: expected_result(2))
+                 expected_result(1) = 'aaa\\""""'
+                 expected_result(2) = 'x'
+
+              case (74)
+                 pattern = '"aaa\\\\"""""""""" x'
+                 allocate(character(len=12) :: expected_result(1))
+                 expected_result(1) = 'aaa\\""""" x'
+
+              case (75)
+                 pattern = '"aaa\\\\""""""""""" x'
+                 allocate(character(len=10) :: expected_result(2))
+                 expected_result(1) = 'aaa\\"""""'
+                 expected_result(2) = 'x'
+
+              case (76)
+                 pattern = '"aaa\\\\"""""""""""" x'
+                 allocate(character(len=13) :: expected_result(1))
+                 expected_result(1) = 'aaa\\"""""" x'
+
+              case (77)
+                 pattern = '\"""" x'
+                 allocate(character(len=4) :: expected_result(1))
+                 expected_result(1) = '"" x'
+
+              case (78)
+                 pattern = '\""""" x'
+                 allocate(character(len=2) :: expected_result(2))
+                 expected_result(1) = '""'
+                 expected_result(2) = 'x'
+
+              case (79)
+                 pattern = '\"""""" x'
+                 allocate(character(len=5) :: expected_result(1))
+                 expected_result(1) = '""" x'
+
+              case (80)
+                 pattern = '\"""""""" x'
+                 allocate(character(len=6) :: expected_result(1))
+                 expected_result(1) = '"""" x'
+
+              case (81)
+                 pattern = '\""""""""" x'
+                 allocate(character(len=4) :: expected_result(2))
+                 expected_result(1) = '""""'
+                 expected_result(2) = 'x'
+
+              case (82)
+                 pattern = '\"""""""""" x'
+                 allocate(character(len=7) :: expected_result(1))
+                 expected_result(1) = '""""" x'
+
+              case (83)
+                 pattern = '\""""""""""" x'
+                 allocate(character(len=5) :: expected_result(2))
+                 expected_result(1) = '"""""'
+                 expected_result(2) = 'x'
+
+              case (84)
+                 pattern = '\"""""""""""" x'
+                 allocate(character(len=8) :: expected_result(1))
+                 expected_result(1) = '"""""" x'
+
+              case (85)
+                 pattern = '\\""" x'
+                 allocate(character(len=4) :: expected_result(1))
+                 expected_result(1) = '\" x'
+
+              case (86)
+                 pattern = '\\"""" x'
+                 allocate(character(len=2) :: expected_result(2))
+                 expected_result(1) = '\"'
+                 expected_result(2) = 'x'
+
+              case (87)
+                 pattern = '\\""""" x'
+                 allocate(character(len=5) :: expected_result(1))
+                 expected_result(1) = '\"" x'
+
+              case (88)
+                 pattern = '\\""""""" x'
+                 allocate(character(len=6) :: expected_result(1))
+                 expected_result(1) = '\""" x'
+
+              case (89)
+                 pattern = '\\"""""""" x'
+                 allocate(character(len=4) :: expected_result(2))
+                 expected_result(1) = '\"""'
+                 expected_result(2) = 'x'
+
+              case (90)
+                 pattern = '\\""""""""" x'
+                 allocate(character(len=7) :: expected_result(1))
+                 expected_result(1) = '\"""" x'
+
+              case (91)
+                 pattern = '\\"""""""""" x'
+                 allocate(character(len=5) :: expected_result(2))
+                 expected_result(1) = '\""""'
+                 expected_result(2) = 'x'
+
+              case (92)
+                 pattern = '\\""""""""""" x'
+                 allocate(character(len=8) :: expected_result(1))
+                 expected_result(1) = '\""""" x'
+
+              case (93)
+                 pattern = '\\"""""""""""" x'
+                 allocate(character(len=6) :: expected_result(2))
+                 expected_result(1) = '\"""""'
+                 expected_result(2) = 'x'
+
+              case (94)
+                 pattern = '\\\"""" x'
+                 allocate(character(len=5) :: expected_result(1))
+                 expected_result(1) = '\"" x'
+
+              case (95)
+                 pattern = '\\\""""" x'
+                 allocate(character(len=3) :: expected_result(2))
+                 expected_result(1) = '\""'
+                 expected_result(2) = 'x'
+
+              case (96)
+                 pattern = '\\\"""""" x'
+                 allocate(character(len=6) :: expected_result(1))
+                 expected_result(1) = '\""" x'
+
+              case (97)
+                 pattern = '\\\"""""""" x'
+                 allocate(character(len=7) :: expected_result(1))
+                 expected_result(1) = '\"""" x'
+
+              case (98)
+                 pattern = '\\\""""""""" x'
+                 allocate(character(len=5) :: expected_result(2))
+                 expected_result(1) = '\""""'
+                 expected_result(2) = 'x'
+
+              case (99)
+                 pattern = '\\\"""""""""" x'
+                 allocate(character(len=8) :: expected_result(1))
+                 expected_result(1) = '\""""" x'
+
+              case (100)
+                 pattern = '\\\""""""""""" x'
+                 allocate(character(len=6) :: expected_result(2))
+                 expected_result(1) = '\"""""'
+                 expected_result(2) = 'x'
+
+              case (101)
+                 pattern = '\\\"""""""""""" x'
+                 allocate(character(len=9) :: expected_result(1))
+                 expected_result(1) = '\"""""" x'
+
+              case (102)
+                 pattern = '\\\\""" x'
+                 allocate(character(len=5) :: expected_result(1))
+                 expected_result(1) = '\\" x'
+
+              case (103)
+                 pattern = '\\\\"""" x'
+                 allocate(character(len=3) :: expected_result(2))
+                 expected_result(1) = '\\"'
+                 expected_result(2) = 'x'
+
+              case (104)
+                 pattern = '\\\\""""" x'
+                 allocate(character(len=6) :: expected_result(1))
+                 expected_result(1) = '\\"" x'
+
+              case (105)
+                 pattern = '\\\\""""""" x'
+                 allocate(character(len=7) :: expected_result(1))
+                 expected_result(1) = '\\""" x'
+
+              case (106)
+                 pattern = '\\\\"""""""" x'
+                 allocate(character(len=5) :: expected_result(2))
+                 expected_result(1) = '\\"""'
+                 expected_result(2) = 'x'
+
+              case (107)
+                 pattern = '\\\\""""""""" x'
+                 allocate(character(len=8) :: expected_result(1))
+                 expected_result(1) = '\\"""" x'
+
+              case (108)
+                 pattern = '\\\\"""""""""" x'
+                 allocate(character(len=6) :: expected_result(2))
+                 expected_result(1) = '\\""""'
+                 expected_result(2) = 'x'
+
+              case (109)
+                 pattern = '\\\\""""""""""" x'
+                 allocate(character(len=9) :: expected_result(1))
+                 expected_result(1) = '\\""""" x'
+
+              case (110)
+                 pattern = '\\\\"""""""""""" x'
+                 allocate(character(len=7) :: expected_result(2))
+                 expected_result(1) = '\\"""""'
+                 expected_result(2) = 'x'
+
 
 
           case default

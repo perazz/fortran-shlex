@@ -126,6 +126,11 @@ module shlex_module
         contains
         
            procedure :: print => print_token
+           
+           procedure, private :: token_eq
+           procedure, private :: token_neq
+           generic :: operator(==) => token_eq
+           generic :: operator(/=) => token_neq
 
     end type shlex_token
     
@@ -305,13 +310,13 @@ module shlex_module
         
         if (cmd .and. scan(pattern,META_CHARS)>0) then 
             nocaret = ms_strip_carets_like_cmd(pattern,caret_error)            
-            tokens = mslex(nocaret,error)
+            tokens = mslex(nocaret,error,ucrt=ucrt)
             
             ! Return the first error occurred
             if (caret_error%type/=NO_ERROR) error = caret_error
             
         else
-            tokens = mslex(pattern,error)
+            tokens = mslex(pattern,error,ucrt=ucrt)
         end if
 
         call tokens_to_strings(tokens,list)
@@ -539,8 +544,10 @@ module shlex_module
         type(shlex_token), allocatable :: list(:)
 
         type(shlex_lexer) :: s
+        type(shlex_token), allocatable :: lmsvcrt(:)
         type(mslex_group), allocatable :: groups(:)
         type(mslex_group) :: next
+        logical :: ambiguous 
 
         ! Initialize lexer
         call s%new(LEXER_WINDOWS,pattern,keep_quotes)
@@ -549,7 +556,7 @@ module shlex_module
         error = new_token(NO_ERROR,"SUCCESS")
         do while (error%type==NO_ERROR)
 
-            next = scan_stream_msvcrt(s,pattern,error)
+            next = mslex_scan_stream(s,pattern,error)
             
             select case (error%type)
                case (EOF_ERROR)
@@ -568,7 +575,23 @@ module shlex_module
         
         print *, 'groups ',size(groups)
         
-        list = parse_msvcrt_groups(groups)
+        if (present(ucrt)) then 
+            ! There is a UCRT request
+            if (ucrt) then 
+                list = parse_ucrt_groups(groups)
+            else
+                list = parse_msvcrt_groups(groups)
+            end if
+        else
+            ! No specific request: check both modes and raise an error if they differ
+            list = parse_ucrt_groups(groups)            
+            lmsvcrt = parse_msvcrt_groups(groups)
+            
+            ambiguous = size(list)/=size(lmsvcrt)
+            if (.not.ambiguous) ambiguous = any(list/=lmsvcrt)
+            if (ambiguous) error = new_token(SYNTAX_ERROR,'Ambiguous string: MSVCRT and UCRT runtimes differ')
+        
+        endif            
         
         print *, 'groups ',size(groups),' tokens = ',size(list)
 
@@ -627,7 +650,7 @@ module shlex_module
 
     end function mslex_quote
 
-    type(mslex_group) function scan_stream_msvcrt(this, pattern, error) result(group)
+    type(mslex_group) function mslex_scan_stream(this, pattern, error) result(group)
         class(shlex_lexer), intent(inout) :: this
         character(kind=SCK,len=*), intent(in) :: pattern
         type(shlex_token), intent(out) :: error
@@ -751,7 +774,7 @@ module shlex_module
 
         endassociate
         
-    end function scan_stream_msvcrt
+    end function mslex_scan_stream
 
     function parse_msvcrt_groups(groups) result(list)
         type(mslex_group), optional, intent(in) :: groups(:)
@@ -775,16 +798,19 @@ module shlex_module
             if (len(groups(i)%spaces) > 0) then
                 
                 if (quote_mode) then
-                    print *, 'add <',groups(i)%spaces,'> due to quote mode'
+                    print *, ' - spaces: add <',groups(i)%spaces,'> due to quote mode'
                     call yield(buffer,groups(i)%spaces)
                 elseif (allocated(buffer)) then
                     
                     ! End of quote-delimited group: emit buffer (even if "")
                     if (.not.allocated(buffer)) buffer = ""
-                    print *, 'return token <',buffer,'>'
+                    print *, ' - spaces: return token <',buffer,'>'
                     list = [list, new_token(TOKEN_WORD, buffer)]
                     deallocate(buffer)
+                    quote_mode = .false.
                 end if
+            else
+                print *, ' - spaces: no spaces'
             endif
 
             if (len(groups(i)%quotes) > 0) then
@@ -810,6 +836,88 @@ module shlex_module
         endif
         
     end function parse_msvcrt_groups
+
+    function parse_ucrt_groups(groups) result(list)
+        type(mslex_group), optional, intent(in) :: groups(:)
+        type(shlex_token), allocatable :: list(:)
+
+        character(kind=SCK,len=:), allocatable :: buffer
+        integer :: i
+        logical :: quote_mode
+        integer :: n_slashes
+        character(len=:), allocatable :: quotes, slashes
+        character(kind=SCK,len=1) :: c
+
+        quote_mode = .false.
+        allocate(list(0))
+        if (.not.present(groups)) return
+        if (size(groups) <= 0) return
+
+        group_loop: do i = 1, size(groups)
+            print *, 'group ', group_pretty_print(groups(i))
+
+            if (len(groups(i)%spaces) > 0) then
+                if (quote_mode) then
+                    print *, ' - spaces: add <', groups(i)%spaces, '> due to quote mode'
+                    call yield(buffer, groups(i)%spaces)
+                elseif (allocated(buffer)) then
+                    if (.not.allocated(buffer)) buffer = ""
+                    ! Emit current token
+                    print *, ' - spaces: return token <', buffer, '>'
+                    list = [list, new_token(TOKEN_WORD, buffer)]
+                    deallocate(buffer)
+                end if
+            else
+                print *, ' - spaces: none'
+            end if
+
+            if (len(groups(i)%quotes) > 0) then
+                slashes   = groups(i)%slashes
+                quotes    = groups(i)%quotes
+                n_slashes = len(slashes)
+                
+                print *, ' - quotes: ',len(quotes),' slashes: ',n_slashes
+                print *, ' - quote mode: ',quote_mode
+
+                if (n_slashes > 0) then
+                    call yield(buffer, slashes(:n_slashes/2))
+                    print *, ' - slashes: ',n_slashes,' printed: ',n_slashes/2
+                    if (mod(n_slashes, 2) /= 0) then
+                        call yield(buffer, DOUBLE_QUOTE)
+                        if (len(quotes) > 0) quotes = quotes(2:)
+                        print *, ' - slashes: returned one quote len now ',len(quotes)
+                    end if
+                end if
+
+                ! Handle remaining quotes
+                print *, ' - quote: start loop with len=',len(quotes)
+                do while (len(quotes) > 0)
+                    
+                    print *, ' - quote: len=',len(quotes),' mode=',quote_mode
+                    
+                    if (quote_mode .and. len(quotes) >= 2) then                        
+                        call yield(buffer, DOUBLE_QUOTE)
+                        quotes = quotes(3:) 
+                        print *, ' - quote: add '//DOUBLE_QUOTE,' quotes now ',quotes,' len=',len(quotes)
+                    else                        
+                        quote_mode = .not. quote_mode
+                        quotes = quotes(2:)
+                        print *, ' - quote mode: switch to ',quote_mode,' quoes now ',quotes,' len=',len(quotes)
+                    end if
+                end do
+            end if
+
+            if (len(groups(i)%text) > 0) call yield(buffer, groups(i)%text)
+
+        end do group_loop
+
+        if (allocated(buffer)) then
+            print *, 'return token <', buffer, '>'
+            list = [list, new_token(TOKEN_WORD, buffer)]
+        end if
+
+    end function parse_ucrt_groups
+
 
     function parse_escaping_groups(groups) result(escaped)
         type(mslex_group), optional, intent(in) :: groups(:)
@@ -1119,55 +1227,16 @@ module shlex_module
         msg = trim(token%string)
         
     end function print_token
+    
+    elemental logical function token_eq(a,b)
+       class(shlex_token), intent(in) :: a,b
+       token_eq = a%type==b%type .and. a%string==b%string
+    end function token_eq
 
-    subroutine iter_arg_msvcrt(matches, n_matches, token, quote_mode)
-        ! Input: array of regex match groups
-        ! Output: a single token string
-        ! State: quote_mode
-
-        character(len=*), dimension(:,:), intent(in)  :: matches  ! (4, n_matches)
-        integer,                         intent(in)   :: n_matches
-        character(len=:), allocatable,   intent(out)  :: token
-        logical,                         intent(inout):: quote_mode
-
-        integer :: i, n_slashes, n_quotes, magic_sum
-        logical :: slashes_odd
-        character(len=:), allocatable :: space, slashes, quotes, text
-
-        token = ""
-        do i = 1, n_matches
-            space   = matches(1,i)
-            slashes = matches(2,i)
-            quotes  = matches(3,i)
-            text    = matches(4,i)
-
-            if (len_trim(space) > 0) then
-                if (quote_mode) then
-                    token = token // space
-                else
-                    exit  ! space ends the argument if not quoted
-                end if
-
-            else if (len_trim(quotes) > 0) then
-                n_slashes = len_trim(slashes)
-                n_quotes  = len_trim(quotes)
-                slashes_odd = mod(n_slashes, 2) /= 0
-
-                ! Append literal backslashes
-                token = token // repeat('\', n_slashes / 2)
-
-                ! Compute and append quotes
-                magic_sum = n_quotes + merge(1, 0, quote_mode) + 2 * merge(1, 0, slashes_odd)
-                token = token // repeat('"', magic_sum / 3)
-
-                ! Toggle quote_mode
-                quote_mode = mod(magic_sum, 3) == 1
-
-            else if (len_trim(text) > 0) then
-                token = token // text
-            end if
-        end do
-    end subroutine iter_arg_msvcrt
+    elemental logical function token_neq(a,b)
+       class(shlex_token), intent(in) :: a,b
+       token_neq = .not.token_eq(a,b)
+    end function token_neq    
 
     pure function group_pretty_print(this) result(msg)
         class(mslex_group), intent(in) :: this
