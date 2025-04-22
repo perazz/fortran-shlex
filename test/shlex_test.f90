@@ -35,9 +35,13 @@ program shlex_tests
     call add_test(test_quotes_1())
         
     do ms=1,224
-        call add_test(test_mslex(ms))
+        call add_test(test_mslex(ms,ucrt=.false.))
         if (nfailed>0) stop 1
     end do
+    
+!    do ms=1,32
+!        call add_test(test_mslex(ms,ucrt=.true.))
+!    end do
     
     do ms=1,12
         call add_test(test_mslex_pretty(ms,cmd=.true.))
@@ -288,19 +292,24 @@ program shlex_tests
 
 
     ! Test case: empty string []
-    logical function test_mslex(id) result(success)        
+    logical function test_mslex(id,ucrt) result(success)        
         integer, intent(in) :: id
+        logical, intent(in) :: ucrt
         
         integer :: i
         type(shlex_token) :: error        
         character(:), allocatable :: pattern,results(:),tokens(:)
         
         ! Get test 
-        call get_mslex_test(id,pattern,results)
+        if (ucrt) then 
+           call get_mslex_ucrt_test(id,pattern,results) 
+        else
+           call get_mslex_test(id,pattern,results)
+        endif
         
         print "(///,'Parsing pattern: <',a,'>'///)", pattern
 
-        tokens = ms_split(pattern, like_cmd=.false., error=error)
+        tokens = ms_split(pattern, like_cmd=.false., error=error, ucrt=ucrt)
         
         success = error%type==0
         
@@ -361,7 +370,7 @@ program shlex_tests
         if (.not.success) then 
             print *, 'MSLEX parsing failed for case ',id,' pattern=',pattern
             print *, 'size tokens (should be 1) ',size(tokens)
-            print *, 'token 1 ',tokens(1)
+            if (size(tokens)>0) print *, 'token 1 ',tokens(1)
             print *, 'pattern ',pattern
             print *, 'error=',error%print()
             return
@@ -1757,7 +1766,56 @@ program shlex_tests
              expected_version(1) = 'aaa"""""'
              expected_version(2) = 'x'
 
-          ! Add more cases if needed...
+          case (24)
+             pattern = '"aaa\\""" x'
+             allocate(character(len=6) :: expected_version(1))
+             expected_version(1) = 'aaa"" x'
+
+          case (25)
+             pattern = '"aaa\\""""" x'
+             allocate(character(len=5) :: expected_version(2))
+             expected_version(1) = 'aaa""'
+             expected_version(2) = 'x'
+
+          case (26)
+             pattern = '"aaa\\"""""" x'
+             allocate(character(len=7) :: expected_version(2))
+             expected_version(1) = 'aaa"""'
+             expected_version(2) = 'x'
+
+          case (27)
+             pattern = '"aaa\\""""""" x'
+             allocate(character(len=8) :: expected_version(1))
+             expected_version(1) = 'aaa""" x'
+
+          case (28)
+             pattern = '"aaa\\"""""""" x'
+             allocate(character(len=6) :: expected_version(2))
+             expected_version(1) = 'aaa"""'
+             expected_version(2) = 'x'
+
+          case (29)
+             pattern = '"aaa\\""""""""" x'
+             allocate(character(len=7) :: expected_version(2))
+             expected_version(1) = 'aaa""""'
+             expected_version(2) = 'x'
+
+          case (30)
+             pattern = '"aaa\\\\" x'
+             allocate(character(len=10) :: expected_version(1))
+             expected_version(1) = 'aaa\\\\" x'
+
+          case (31)
+             pattern = '"aaa\\\\""" x'
+             allocate(character(len=6) :: expected_version(2))
+             expected_version(1) = 'aaa\\\\"'
+             expected_version(2) = 'x'
+
+          case (32)
+             pattern = '"aaa\\\\"""" x'
+             allocate(character(len=10) :: expected_version(1))
+             expected_version(1) = 'aaa\\\\\\"" x'
+
 
           case default
              stop 'invalid ucrt test ID'

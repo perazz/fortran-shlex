@@ -276,22 +276,22 @@ module shlex_module
     end function split_error
     
     ! High level interface: return a list of strings, with error type
-    function mslex_split_bool(pattern,like_cmd,success) result(list)
+    function mslex_split_bool(pattern,like_cmd,ucrt,success) result(list)
         character(*),      intent(in)  :: pattern
-        logical, optional, intent(in)  :: like_cmd
+        logical, optional, intent(in)  :: like_cmd,ucrt
         logical, optional, intent(out) :: success
         character(kind=SCK,len=:), allocatable :: list(:)
         type(shlex_token) :: error
 
-        list = mslex_split_error(pattern,like_cmd,error)
+        list = mslex_split_error(pattern,like_cmd,ucrt,error)
         if (present(success)) success = error%type==NO_ERROR
 
     end function mslex_split_bool
 
     ! High level interface: return a list of strings
-    function mslex_split_error(pattern,like_cmd,error) result(list)
+    function mslex_split_error(pattern,like_cmd,ucrt,error) result(list)
         character(*),      intent(in)  :: pattern
-        logical, optional, intent(in)  :: like_cmd
+        logical, optional, intent(in)  :: like_cmd,ucrt
         type(shlex_token), intent(out) :: error
         character(kind=SCK,len=:), allocatable :: list(:)
         
@@ -303,7 +303,7 @@ module shlex_module
         cmd = .true.
         if (present(like_cmd)) cmd = like_cmd
         
-        if (cmd) then 
+        if (cmd .and. scan(pattern,META_CHARS)>0) then 
             nocaret = ms_strip_carets_like_cmd(pattern,caret_error)            
             tokens = mslex(nocaret,error)
             
@@ -439,14 +439,15 @@ module shlex_module
     end function shlex_bool
 
     ! High level interface: return a list of tokens
-    function mslex_bool(pattern,success,keep_quotes) result(list)
+    function mslex_bool(pattern,success,keep_quotes,ucrt) result(list)
         character(*),      intent(in)  :: pattern
         logical, optional, intent(out) :: success
         logical, optional, intent(in)  :: keep_quotes
+        logical, optional, intent(in)  :: ucrt
         type(shlex_token), allocatable :: list(:)
         type(shlex_token) :: error
 
-        list = mslex_error(pattern,error,keep_quotes)
+        list = mslex_error(pattern,error,keep_quotes,ucrt)
         if (present(success)) success = error%type==NO_ERROR
     end function mslex_bool
 
@@ -530,10 +531,11 @@ module shlex_module
     end function n_next_quotes
     
     ! High level interface: return a list of tokens
-    function mslex_error(pattern,error,keep_quotes) result(list)
+    function mslex_error(pattern,error,keep_quotes,ucrt) result(list)
         character(*),      intent(in)  :: pattern
         type(shlex_token), intent(out) :: error
         logical, optional, intent(in)  :: keep_quotes
+        logical, optional, intent(in)  :: ucrt
         type(shlex_token), allocatable :: list(:)
 
         type(shlex_lexer) :: s
@@ -1405,7 +1407,7 @@ module shlex_module
         type(shlex_token), intent(out) :: error
 
         type(shlex_lexer) :: lex
-        logical :: in_quote
+        logical :: in_quote,escaping,quoting
         integer :: bpos, pos, length
         character(len=2*len(s)) :: buffer
         character :: c
@@ -1415,17 +1417,22 @@ module shlex_module
         call lex%new(LEXER_WINDOWS, s)
         error = new_token(NO_ERROR,"SUCCESS")
         bpos = 0
-        in_quote = .false.
+        in_quote  = .false.
+        escaping  = .false.
+        quoting   = .false.
 
         do while (pos < length)
             pos = pos + 1
             c = s(pos:pos)
+            escaping = .false.
+            quoting  = .false.
 
             if (c == DOUBLE_QUOTE) then
                 
                 in_quote = .not. in_quote
                 bpos = bpos + 1
                 buffer(bpos:bpos) = DOUBLE_QUOTE
+                quoting  = .true.
 
             elseif (c == CARET_CHAR) then
                 if (in_quote) then
@@ -1433,33 +1440,34 @@ module shlex_module
                     bpos = bpos + 1
                     buffer(bpos:bpos) = c
                 else
+                    
+                    escaping = .true.
+                    
                     if (pos < length) then
                         pos = pos + 1
                         c = s(pos:pos)
                         bpos = bpos + 1
                         buffer(bpos:bpos) = c
-
-                        ! Check if escaped character is ! or % (outside quotes)
-                        if (.not. in_quote .and. scan(c,META_INSIDE_QUOTES)>0) then
-                            error = new_token(SYNTAX_ERROR, "Unquoted CMD metacharacters in string: '"//s//"'")
-                            return
-                        end if
                     end if
                     ! Else: discard trailing caret
                 end if
 
             else
+                
+                ! Yield text
                 bpos = bpos + 1
                 buffer(bpos:bpos) = c
 
-                ! Check for unquoted metacharacters in raw text
-                if (.not. in_quote) then
-                    if (scan(c,META_INSIDE_QUOTES)>0) then
-                        error = new_token(SYNTAX_ERROR, "Unquoted CMD metacharacters in string: '"//s//"'")
-                        return
-                    end if
+            end if
+            
+            ! Check for unquoted metacharacters in raw text, but do not interrupt
+            if (.not. (escaping .or. quoting)) then
+                if ((in_quote .and. scan(c, META_INSIDE_QUOTES) > 0) .or. &
+                    ((.not. in_quote) .and. scan(c, META_CHARS) > 0)) then
+                    error = new_token(SYNTAX_ERROR, "Unquoted CMD metacharacters in string: '"//s//"'")
                 end if
             end if
+            
         end do
 
         allocate(character(len=bpos) :: unescaped)
