@@ -1630,6 +1630,142 @@ program shlex_tests
         
     end subroutine get_mslex_test
         
+    subroutine get_mslex_ucrt_test(id, pattern, expected_version)
+        integer, intent(in) :: id
+        character(:), allocatable, intent(out) :: pattern, expected_version(:)
+
+        select case (id)
+          case (1)
+             pattern = '"""""'
+             allocate(character(len=2) :: expected_version(1))
+             expected_version(1) = '""'
+
+          case (2)
+             pattern = '"""""""'
+             allocate(character(len=3) :: expected_version(1))
+             expected_version(1) = '"""'
+
+          case (3)
+             pattern = '""""""""'
+             allocate(character(len=3) :: expected_version(1))
+             expected_version(1) = '"""'
+
+          case (4)
+             pattern = '"""""""""'
+             allocate(character(len=4) :: expected_version(1))
+             expected_version(1) = '""""'
+
+          case (5)
+             pattern = '""""""""""'
+             allocate(character(len=4) :: expected_version(1))
+             expected_version(1) = '""""'
+
+          case (6)
+             pattern = '""""" '
+             allocate(character(len=3) :: expected_version(1))
+             expected_version(1) = '"" '
+
+          case (7)
+             pattern = '""""" x'
+             allocate(character(len=5) :: expected_version(1))
+             expected_version(1) = '"" x'
+
+          case (8)
+             pattern = '""""""" x'
+             allocate(character(len=5) :: expected_version(1))
+             expected_version(1) = '""" x'
+
+          case (9)
+             pattern = '"""""""" x'
+             allocate(character(len=3) :: expected_version(2))
+             expected_version(1) = '"""'
+             expected_version(2) = 'x'
+
+          case (10)
+             pattern = '""""""""" x'
+             allocate(character(len=6) :: expected_version(1))
+             expected_version(1) = '"""" x'
+
+          case (11)
+             pattern = '"""""""""" x'
+             allocate(character(len=4) :: expected_version(2))
+             expected_version(1) = '""""'
+             expected_version(2) = 'x'
+
+          case (12)
+             pattern = '""""""""""" x'
+             allocate(character(len=9) :: expected_version(1))
+             expected_version(1) = '""""" x'
+
+          case (13)
+             pattern = '"""""""""""" x'
+             allocate(character(len=5) :: expected_version(2))
+             expected_version(1) = '"""""'
+             expected_version(2) = 'x'
+
+          case (14)
+             pattern = '""""""""""""" x'
+             allocate(character(len=8) :: expected_version(1))
+             expected_version(1) = '"""""" x'
+
+          case (15)
+             pattern = '"aaa"" x'
+             allocate(character(len=6) :: expected_version(1))
+             expected_version(1) = 'aaa" x'
+
+          case (16)
+             pattern = '"aaa""" x'
+             allocate(character(len=4) :: expected_version(2))
+             expected_version(1) = 'aaa"'
+             expected_version(2) = 'x'
+
+          case (17)
+             pattern = '"aaa"""" x'
+             allocate(character(len=6) :: expected_version(1))
+             expected_version(1) = 'aaa"" x'
+
+          case (18)
+             pattern = '"aaa"""""" x'
+             allocate(character(len=7) :: expected_version(1))
+             expected_version(1) = 'aaa""" x'
+
+          case (19)
+             pattern = '"aaa""""""" x'
+             allocate(character(len=5) :: expected_version(2))
+             expected_version(1) = 'aaa"""'
+             expected_version(2) = 'x'
+
+          case (20)
+             pattern = '"aaa"""""""" x'
+             allocate(character(len=7) :: expected_version(2))
+             expected_version(1) = 'aaa""""'
+             expected_version(2) = 'x'
+
+          case (21)
+             pattern = '"aaa""""""""" x'
+             allocate(character(len=8) :: expected_version(1))
+             expected_version(1) = 'aaa"""" x'
+
+          case (22)
+             pattern = '"aaa"""""""""" x'
+             allocate(character(len=9) :: expected_version(1))
+             expected_version(1) = 'aaa""""" x'
+
+          case (23)
+             pattern = '"aaa""""""""""" x'
+             allocate(character(len=7) :: expected_version(2))
+             expected_version(1) = 'aaa"""""'
+             expected_version(2) = 'x'
+
+          ! Add more cases if needed...
+
+          case default
+             stop 'invalid ucrt test ID'
+        end select
+
+    end subroutine get_mslex_ucrt_test
+        
+        
     subroutine get_mslex_pretty_example(id, pattern, expected_result)
         integer, intent(in) :: id
         character(:), allocatable, intent(out) :: pattern, expected_result
