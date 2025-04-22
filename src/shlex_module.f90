@@ -51,7 +51,10 @@ module shlex_module
     end interface
     
     ! Quote MS Windows commands
-    public :: mslex_quote
+    public :: ms_quote
+    interface ms_quote
+        module procedure mslex_quote
+    end interface
 
     ! Turn on verbosity for debugging
     logical, parameter :: DEBUG = .true.
@@ -1502,7 +1505,5 @@ module shlex_module
         endassociate
     end function ms_strip_carets_like_cmd
 
-    
-     
 end module shlex_module
 
