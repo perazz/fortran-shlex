@@ -10,8 +10,8 @@ This package provides two main lexer interfaces:
 
 The new **MSLEX API** allows parsing and quoting of strings according to Windows command-line conventions, which differ from POSIX shells.
 
-### `ms_split(pattern, like_cmd, ucrt, success) → character(:), allocatable, dimension(:)`
-### `ms_split(pattern, like_cmd, ucrt, error) → character(:), allocatable, dimension(:)`
+#### `tokens = ms_split(pattern, like_cmd, ucrt, success)`
+#### `tokens = ms_split(pattern, like_cmd, ucrt, error)`
 
 Split a command-line string into arguments using Windows semantics.
 
@@ -30,7 +30,7 @@ args = ms_split('"my file.txt" -DVALUE=42', like_cmd=.true., success=ok)
 if (.not.ok) print *, 'mslex error'
 ```
 
-### `ms_quote(s, for_cmd) → character(:), allocatable`
+#### `quoted = ms_quote(s, for_cmd)`
 
 Quote a string so that it is parsed correctly by Windows command-line interpreters.
 
@@ -57,7 +57,7 @@ fortran-shlex = { git="https://github.com/perazz/fortran-shlex.git" }
 
 ## 🐚 POSIX-like Usage (default `split` / `shlex`)
 
-### `split(string, [success], [error], [join_spaced], [keep_quotes]) → character(:), allocatable`
+#### `tokens = split(string, [success], [error], [join_spaced], [keep_quotes])`
 
 Splits a command-like string using Unix shell rules.
 
@@ -66,9 +66,9 @@ character(len=:), allocatable :: tokens(:)
 tokens = split('gfortran -I /include "quoted string"')
 ```
 
-### `shlex(string, [success], [error], [join_spaced], [keep_quotes]) → type(shlex_token), allocatable`
+#### `tokens = shlex(string, [success], [error], [join_spaced], [keep_quotes])`
 
-Same as `split`, but returns `shlex_token` structures for each word.
+Same as `split`, but returns an `type(shlex_token), allocatable, dimension(:)` array.
 
 ---
 
