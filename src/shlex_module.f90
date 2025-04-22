@@ -43,12 +43,14 @@ module shlex_module
         module procedure split_joined_error
     end interface
     
+    ! Return MS Windows split strings
     public :: ms_split
     interface ms_split
         module procedure mslex_split_bool
         module procedure mslex_split_error
     end interface
     
+    ! Quote MS Windows commands
     public :: mslex_quote
 
     ! Turn on verbosity for debugging
@@ -573,8 +575,6 @@ module shlex_module
             
         end do
         
-        print *, 'groups ',size(groups)
-        
         if (present(ucrt)) then 
             ! There is a UCRT request
             if (ucrt) then 
@@ -593,8 +593,6 @@ module shlex_module
         
         endif            
         
-        print *, 'groups ',size(groups),' tokens = ',size(list)
-
         return
 
     end function mslex_error    
@@ -716,7 +714,6 @@ module shlex_module
                     
                     ! Store token
                     group%spaces = pattern(start:pos)
-                    print *, 'SPACES <'//group%spaces//'>'
                     
                 case (2)
                     
@@ -729,7 +726,6 @@ module shlex_module
                     
                     ! Store token
                     group%slashes = pattern(start:pos)      
-                    print *, 'SLASHES <'//group%slashes//'>'
                     
                 case (3)
                     
@@ -742,7 +738,6 @@ module shlex_module
                     
                     ! Store token
                     group%quotes = pattern(start:pos)   
-                    print *, 'QUOTES <'//group%quotes//'>'
                     
                 case (4)
                     
@@ -757,7 +752,6 @@ module shlex_module
                     group%text = pattern(start:pos)       
                     
                     ! After group 4, we exit
-                    print *, 'TEXT <'//group%text//'>'
                     exit        
                     
             end select
@@ -793,24 +787,18 @@ module shlex_module
 
         group_loop: do i = 1, size(groups)
         
-            print *, 'group ',group_pretty_print(groups(i))
-        
             if (len(groups(i)%spaces) > 0) then
                 
                 if (quote_mode) then
-                    print *, ' - spaces: add <',groups(i)%spaces,'> due to quote mode'
                     call yield(buffer,groups(i)%spaces)
                 elseif (allocated(buffer)) then
                     
                     ! End of quote-delimited group: emit buffer (even if "")
                     if (.not.allocated(buffer)) buffer = ""
-                    print *, ' - spaces: return token <',buffer,'>'
                     list = [list, new_token(TOKEN_WORD, buffer)]
                     deallocate(buffer)
                     quote_mode = .false.
                 end if
-            else
-                print *, ' - spaces: no spaces'
             endif
 
             if (len(groups(i)%quotes) > 0) then
@@ -821,8 +809,6 @@ module shlex_module
                 magic_sum   = n_quotes + merge(1, 0, quote_mode) + 2 * merge(1, 0, slashes_odd)
                 call yield(buffer,repeat('"', magic_sum / 3))
                 quote_mode  = mod(magic_sum, 3) == 1
-                
-                print *, 'slash=',n_slashes,'quot ',n_quotes,' odd=',slashes_odd,' sum=',magic_sum,' quotemode',quote_mode
             endif
 
             if (len(groups(i)%text) > 0) call yield(buffer,groups(i)%text)
@@ -830,10 +816,7 @@ module shlex_module
         end do group_loop
 
         ! Always emit buffer (even if it's "")
-        if (allocated(buffer)) then 
-            print *, 'return token <',buffer,'>'
-            list = [list, new_token(TOKEN_WORD, buffer)]
-        endif
+        if (allocated(buffer)) list = [list, new_token(TOKEN_WORD, buffer)]
         
     end function parse_msvcrt_groups
 
@@ -854,21 +837,16 @@ module shlex_module
         if (size(groups) <= 0) return
 
         group_loop: do i = 1, size(groups)
-            print *, 'group ', group_pretty_print(groups(i))
 
             if (len(groups(i)%spaces) > 0) then
                 if (quote_mode) then
-                    print *, ' - spaces: add <', groups(i)%spaces, '> due to quote mode'
                     call yield(buffer, groups(i)%spaces)
                 elseif (allocated(buffer)) then
                     if (.not.allocated(buffer)) buffer = ""
                     ! Emit current token
-                    print *, ' - spaces: return token <', buffer, '>'
                     list = [list, new_token(TOKEN_WORD, buffer)]
                     deallocate(buffer)
                 end if
-            else
-                print *, ' - spaces: none'
             end if
 
             if (len(groups(i)%quotes) > 0) then
@@ -876,33 +854,23 @@ module shlex_module
                 quotes    = groups(i)%quotes
                 n_slashes = len(slashes)
                 
-                print *, ' - quotes: ',len(quotes),' slashes: ',n_slashes
-                print *, ' - quote mode: ',quote_mode
-
                 if (n_slashes > 0) then
                     call yield(buffer, slashes(:n_slashes/2))
-                    print *, ' - slashes: ',n_slashes,' printed: ',n_slashes/2
                     if (mod(n_slashes, 2) /= 0) then
                         call yield(buffer, DOUBLE_QUOTE)
                         if (len(quotes) > 0) quotes = quotes(2:)
-                        print *, ' - slashes: returned one quote len now ',len(quotes)
                     end if
                 end if
 
                 ! Handle remaining quotes
-                print *, ' - quote: start loop with len=',len(quotes)
                 do while (len(quotes) > 0)
-                    
-                    print *, ' - quote: len=',len(quotes),' mode=',quote_mode
                     
                     if (quote_mode .and. len(quotes) >= 2) then                        
                         call yield(buffer, DOUBLE_QUOTE)
                         quotes = quotes(3:) 
-                        print *, ' - quote: add '//DOUBLE_QUOTE,' quotes now ',quotes,' len=',len(quotes)
                     else                        
                         quote_mode = .not. quote_mode
                         quotes = quotes(2:)
-                        print *, ' - quote mode: switch to ',quote_mode,' quoes now ',quotes,' len=',len(quotes)
                     end if
                 end do
             end if
@@ -911,10 +879,7 @@ module shlex_module
 
         end do group_loop
 
-        if (allocated(buffer)) then
-            print *, 'return token <', buffer, '>'
-            list = [list, new_token(TOKEN_WORD, buffer)]
-        end if
+        if (allocated(buffer)) list = [list, new_token(TOKEN_WORD, buffer)]
 
     end function parse_ucrt_groups
 
@@ -930,9 +895,6 @@ module shlex_module
         if (.not. present(groups)) return
 
         do i = 1, size(groups)
-            
-            print *, 'group ',i,':',group_pretty_print(groups(i))
-
             if (len(groups(i)%quotes) > 0) then
                 ! Case: quotes are present
                 call yield(escaped, groups(i)%slashes)
@@ -973,7 +935,6 @@ module shlex_module
            ! Get next character
            this%input_position = this%input_position + 1
            call this%parse_char(pattern,next_type,next_char,error)
-           if (DEBUG) print *, 'NEW CHAR: [',next_char,'] type=',CHAR_NAME(next_type),' state=',error%print()
            
            select case (state)
 
@@ -1165,8 +1126,6 @@ module shlex_module
         prev_escapes = n_previous_escapes(this, pattern)
         at_start = this%input_position == 1
 
-        if (DEBUG) print *, 'start_quoting: prev_escapes =', prev_escapes
-
         ! Can start quoting if it's the first char or an even number of escapes
         if (at_start .or. mod(prev_escapes, 2) == 0) then
             ! Peek ahead to see how many more quotes follow
@@ -1181,13 +1140,11 @@ module shlex_module
                 value = value // repeat(DOUBLE_QUOTE, next_quotes / 2)
                 this%input_position = this%input_position + next_quotes
                 start_quoting = .true.           
-                if (DEBUG) print *, 'Start quoting, move forward by ', next_quotes
             else
                 ! EVEN total, or ODD but last quote is at EOF: treat all as literal
                 value = value // repeat(DOUBLE_QUOTE, total_quotes / 2)
                 this%input_position = this%input_position + next_quotes
                 start_quoting = .false.
-                if (DEBUG) print *, 'Do not start quoting, move forward by ', next_quotes
             end if
         end if
     end function ms_start_quoting

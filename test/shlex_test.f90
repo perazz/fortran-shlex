@@ -40,20 +40,19 @@ program shlex_tests
     end do
     
     do ms=1,110
-        print *, 'UCRT TEST ',ms
         call add_test(test_mslex(ms,ucrt=.true.))
         if (nfailed>0) stop 1
     end do
-!    
-!    do ms=1,12
-!        call add_test(test_mslex_pretty(ms,cmd=.true.))
-!        if (nfailed>0) stop 1
-!    end do
-!    
-!    do ms=1,7
-!        call add_test(test_mslex_pretty(ms,cmd=.false.))
-!        if (nfailed>0) stop 1
-!    end do
+    
+    do ms=1,12
+        call add_test(test_mslex_pretty(ms,cmd=.true.))
+        if (nfailed>0) stop 1
+    end do
+    
+    do ms=1,7
+        call add_test(test_mslex_pretty(ms,cmd=.false.))
+        if (nfailed>0) stop 1
+    end do
 
     if (nfailed<=0) then
         print "(*(a,:,i0))", 'SUCCESS! all ',npassed,' tests passed.'
@@ -62,7 +61,6 @@ program shlex_tests
         print "(*(a,:,i0))", 'ERROR: ',nfailed,' tests failed, ',npassed,' passed.'
         stop 1
     end if
-
 
     contains
 
@@ -107,7 +105,6 @@ program shlex_tests
        success = size(tokens)==size(results)
        do i=1,size(tokens)
           success = tokens(i)%string==trim(results(i))
-          if (.not.success) print *, 'token=',tokens(i)%string,' expected=',results(i)
           if (.not.success) return
        end do
     end function test_2
@@ -127,7 +124,6 @@ program shlex_tests
        success = size(tokens)==size(results)
        do i=1,size(tokens)
           success = tokens(i)==trim(results(i))
-          if (.not.success) print *, 'token=',tokens(i),' expected=',results(i)
           if (.not.success) return
        end do
     end function test_3
@@ -147,7 +143,6 @@ program shlex_tests
        success = size(tokens)==size(results)
        do i=1,size(tokens)
           success = tokens(i)==trim(results(i))
-          if (.not.success) print *, 'token=',tokens(i),' expected=',results(i)
           if (.not.success) return
        end do
     end function test_4
@@ -174,7 +169,6 @@ program shlex_tests
        success = size(tokens)==size(results)
        do i=1,size(tokens)
           success = tokens(i)==trim(results(i))
-          if (.not.success) print *, 'token=',tokens(i),' expected=',results(i)
           if (.not.success) return
        end do
     end function test_5
@@ -198,7 +192,6 @@ program shlex_tests
 
         do i = 1, size(tokens)
             success = tokens(i) == trim(results(i))
-            if (.not.success) print *, 'token=', tokens(i), ' expected=', results(i)
             if (.not.success) return
         end do
 
@@ -219,7 +212,6 @@ program shlex_tests
 
         do i = 1, size(tokens)
             success = tokens(i) == trim(results(i))
-            if (.not.success) print *, 'token=', tokens(i), ' expected=', results(i)
             if (.not.success) return
         end do
 
@@ -240,7 +232,6 @@ program shlex_tests
 
         do i = 1, size(tokens)
             success = tokens(i) == trim(results(i))
-            if (.not.success) print *, 'token=', tokens(i), ' expected=', results(i)
             if (.not.success) return
         end do
 
@@ -263,7 +254,6 @@ program shlex_tests
 
         do i = 1, size(tokens)
             success = tokens(i) == trim(results(i))
-            if (.not.success) print *, 'token=', tokens(i), ' expected=', results(i)
             if (.not.success) return
         end do
 
@@ -286,7 +276,6 @@ program shlex_tests
 
         do i = 1, size(tokens)
             success = tokens(i) == trim(results(i))
-            if (.not.success) print *, 'token=', tokens(i), ' expected=', results(i)
             if (.not.success) return
         end do
 
@@ -309,32 +298,13 @@ program shlex_tests
            call get_mslex_test(id,pattern,results)
         endif
         
-        print "(///,'Parsing pattern: <',a,'>'///)", pattern
-
         tokens = ms_split(pattern, like_cmd=.false., error=error, ucrt=ucrt)
-        
         success = error%type==0
-        
-        if (.not.success) then 
-            print *, 'MSLEX parsing failed for case ',id,' pattern=',pattern
-            print *, 'error=',error%print()
-            return
-        endif        
+        if (.not.success) return
+
         success = size(tokens) == size(results)        
-        if (.not.success) print *, 'MSLEX failed for case ',id,' pattern=',pattern
-        if (.not.success) print *, 'N tokens = ',size(tokens),' expected # = ',size(results)
-        if (.not.success) print *, 'error=',error%print()
         do i = 1, size(tokens)
             success = success .and. trim(tokens(i)) == trim(results(i))
-            if (.not.success) print *, 'token ',i,': <', tokens(i), '> expected=<', results(i),'>',' success=',success
-            if (.not.success) print *, 'char tokens ',iachar(trim(tokens(i)))
-            if (.not.success) print *, 'char exp    ',iachar(trim(results(i)))
-            
-            print *, 'tokens(i)=<',tokens(i),'> len=',len(tokens(i)),' char=',iachar(tokens(i)), 'len trim=',len_trim(tokens(i))
-            print *, 'res   (i)=<',results(i),'> len=',len(results(i)),' chars=',iachar(results(i)),' len trim=',len_trim(results(i))
-            
-            if (.not.success) print *, 'error=',error%print()
-            if (.not.success) print *, 'pattern=<',pattern,'>'
             if (.not.success) return
         end do
     end function test_mslex
@@ -355,29 +325,14 @@ program shlex_tests
            call get_mslex_not_cmd_example(id,pattern,results)
         endif
         
-        print '(///a///)', pattern
-        
         success = mslex_quote(pattern,for_cmd=cmd)==results
-        if (.not.success) then 
-            print *, 'pattern=',pattern
-            print *, 'quoted =',mslex_quote(pattern,for_cmd=cmd)
-            print *, 'expect =',results
-            return
-        end if
+        if (.not.success) return
         
         tokens = ms_split(results, like_cmd=cmd, error=error)
-        
         success = error%type==0 .and.  size(tokens)==1
         
-        if (.not.success) then 
-            print *, 'MSLEX parsing failed for case ',id,' pattern=',pattern
-            print *, 'size tokens (should be 1) ',size(tokens)
-            if (size(tokens)>0) print *, 'token 1 ',tokens(1)
-            print *, 'pattern ',pattern
-            print *, 'error=',error%print()
-            return
-        endif        
-        
+        if (.not.success) return
+
         if (cmd) then 
             tokens   = ms_split(results // " " // results // " foo bar")        
             expected = [character(len=max(3,len(pattern))) :: pattern, pattern, "foo", "bar"]
@@ -2369,9 +2324,4 @@ program shlex_tests
         end select
     end subroutine get_mslex_not_cmd_example
       
-                 
-        
-
-
-
 end program shlex_tests
