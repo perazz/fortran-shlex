@@ -20,11 +20,18 @@ module shlex_module
 
     integer, parameter, public :: SCK = selected_char_kind("ascii")
 
-    ! Shlex: return tokens
+    ! Shlex: return posix tokens
     public :: shlex
     interface shlex
         module procedure shlex_bool
         module procedure shlex_error        
+    end interface
+    
+    ! Mslex: return MS Windows tokens
+    public :: mslex
+    interface mslex
+        module procedure mslex_bool
+        module procedure mslex_error
     end interface
 
     ! Split: return split strings
@@ -34,6 +41,19 @@ module shlex_module
         module procedure split_error
         module procedure split_joined_bool
         module procedure split_joined_error
+    end interface
+    
+    ! Return MS Windows split strings
+    public :: ms_split
+    interface ms_split
+        module procedure mslex_split_bool
+        module procedure mslex_split_error
+    end interface
+    
+    ! Quote MS Windows commands
+    public :: ms_quote
+    interface ms_quote
+        module procedure mslex_quote
     end interface
 
     ! Turn on verbosity for debugging
@@ -47,24 +67,40 @@ module shlex_module
     integer, parameter :: CHAR_ESCAPE            = 4
     integer, parameter :: CHAR_COMMENT           = 5
     integer, parameter :: CHAR_EOF               = 6
+    
+    character(*), parameter :: CHAR_NAME(0:6) = [character(17) :: 'UNKNOWN', &
+                                               'SPACE  ', &
+                                               'ESCAPING QUOTE', &
+                                               'NONESCAPING QUOTE', &
+                                               'ESCAPE', &
+                                               'COMMENT', &
+                                               'EOF']
 
     ! Error types
     integer, parameter :: NO_ERROR               = 0
     integer, parameter :: SYNTAX_ERROR           = 1
     integer, parameter :: EOF_ERROR              = 2
+    
+    integer, parameter :: MAX_CHAR_CLASS_LEN = 1024
 
+    character(kind=SCK), parameter, public :: NULL_CHAR  = achar(0, kind=SCK)
     character(kind=SCK), parameter, public :: NEWLINE    = achar(10,kind=SCK)  ! \n or line feed
     character(kind=SCK), parameter, public :: TAB        = achar( 9,kind=SCK)  ! \t or tabulation character
     character(kind=SCK), parameter, public :: CARRIAGE   = achar(13,kind=SCK)  ! \t or tabulation character
 
-    integer, parameter :: MAX_CHAR_CLASS_LEN = 1024
-
     ! Character type sets
-    character(kind=SCK,len=*), parameter :: SPACE_CHARS = " "//NEWLINE//TAB//CARRIAGE
-    character(kind=SCK,len=*), parameter :: ESCAPING_QUOTE_CHARS = '"'
-    character(kind=SCK,len=*), parameter :: NONESCAPING_QUOTE_CHARS = "'"
-    character(kind=SCK,len=*), parameter :: ESCAPE_CHARS = "\"
+    character(kind=SCK,len=*), parameter :: SPACE_CHARS   = " "//NEWLINE//TAB//CARRIAGE
+    character(kind=SCK,len=*), parameter :: DOUBLE_QUOTE  = '"'
+    character(kind=SCK,len=*), parameter :: SINGLE_QUOTE  = "'"
+    character(kind=SCK,len=*), parameter :: ESCAPE_CHARS  = "\"
     character(kind=SCK,len=*), parameter :: COMMENT_CHARS = "#"
+    character(kind=SCK,len=*), parameter :: CARET_CHAR    = "^"   
+    
+    character(kind=SCK,len=*), parameter :: META_INSIDE_QUOTES = DOUBLE_QUOTE//'%!'
+    character(kind=SCK,len=*), parameter :: META_CHARS         = META_INSIDE_QUOTES//'^&|<>()'
+    character(kind=SCK,len=*), parameter :: META_OR_SPACE      = SPACE_CHARS//META_CHARS
+    
+    
 
     ! Token types
     integer, parameter :: TOKEN_UNKNOWN         = 0
@@ -73,7 +109,11 @@ module shlex_module
     integer, parameter :: TOKEN_COMMENT         = 3
     integer, parameter :: TOKEN_QUOTED_WORD     = 4 ! Words in non-escaping quotes
     integer, parameter :: TOKEN_ESC_QUOTED_WORD = 5 ! Words in escaping quotes
-
+    
+    ! Lexer types
+    integer, parameter :: LEXER_POSIX           = 0 ! Lexer for posix shells 
+    integer, parameter :: LEXER_WINDOWS         = 1 ! Lexer for Windows shells
+ 
     ! Lexer state
     integer, parameter :: STATE_START            = 0 ! No characters read yet
     integer, parameter :: STATE_INWORD           = 1 ! Processing characters in a word
@@ -91,20 +131,36 @@ module shlex_module
         contains
         
            procedure :: print => print_token
+           
+           procedure, private :: token_eq
+           procedure, private :: token_neq
+           generic :: operator(==) => token_eq
+           generic :: operator(/=) => token_neq
 
     end type shlex_token
-
-
+    
+    type, public :: mslex_group
+        
+        character(kind=SCK,len=:), allocatable :: spaces
+        character(kind=SCK,len=:), allocatable :: slashes
+        character(kind=SCK,len=:), allocatable :: quotes
+        character(kind=SCK,len=:), allocatable :: text
+        
+    end type mslex_group
+    
     type, public :: shlex_lexer
-
+        
         ! The input string
         integer :: input_position = 0
         integer :: input_length   = -1
         
         ! Settings
+        integer :: lexer       = LEXER_POSIX
         logical :: keep_quotes = .false.
 
         contains
+        
+           procedure, non_overridable :: parse_char
 
            procedure :: destroy
            procedure :: new
@@ -128,14 +184,14 @@ module shlex_module
     end function new_token
 
     ! Return
-    elemental integer function CHAR_TYPE(c)
+    elemental integer function POSIX_CHAR_TYPE(c) result(CHAR_TYPE)
        character(kind=SCK), intent(in) :: c
 
        if (scan(c,SPACE_CHARS)>0) then
           CHAR_TYPE = CHAR_SPACE
-       elseif (scan(c,ESCAPING_QUOTE_CHARS)>0) then
+       elseif (scan(c,DOUBLE_QUOTE)>0) then
           CHAR_TYPE = CHAR_ESCAPING_QUOTE
-       elseif (scan(c,NONESCAPING_QUOTE_CHARS)>0) then
+       elseif (scan(c,SINGLE_QUOTE)>0) then
           CHAR_TYPE = CHAR_NONESCAPING_QUOTE
        elseif (scan(c,ESCAPE_CHARS)>0) then
           CHAR_TYPE = CHAR_ESCAPE
@@ -145,8 +201,65 @@ module shlex_module
           CHAR_TYPE = CHAR_UNKNOWN
        end if
 
-    end function CHAR_TYPE
+    end function POSIX_CHAR_TYPE
 
+    elemental integer function MS_CHAR_TYPE(c) result(CHAR_TYPE)
+        character(kind=SCK), intent(in) :: c
+
+        ! Handle whitespace outside of quotes
+        if (scan(c, SPACE_CHARS) > 0) then
+            CHAR_TYPE = CHAR_SPACE
+        ! Double quote handling
+        elseif (scan(c,DOUBLE_QUOTE)>0) then
+            CHAR_TYPE = CHAR_NONESCAPING_QUOTE
+        else
+            CHAR_TYPE = CHAR_UNKNOWN
+        end if
+
+    end function MS_CHAR_TYPE
+
+
+    ! Current char type: 
+    elemental subroutine parse_char(lex,pattern,CHAR_TYPE,CHAR_VALUE,error)
+       class(shlex_lexer), intent(in)    :: lex
+       character(*),       intent(in)    :: pattern
+       integer,            intent(out)   :: CHAR_TYPE
+       character(kind=SCK),intent(out)   :: CHAR_VALUE
+       type(shlex_token),  intent(inout) :: error
+       
+       associate(pos=>lex%input_position, length=>lex%input_length)
+       
+       if (pos<=0) then 
+        
+           CHAR_TYPE  = CHAR_UNKNOWN
+           CHAR_VALUE = NULL_CHAR
+           
+       elseif (pos>length) then  
+          
+           CHAR_TYPE  = CHAR_EOF
+           CHAR_VALUE = NULL_CHAR
+          
+       else
+            
+           select case (lex%lexer)
+              case (LEXER_POSIX)            
+                 CHAR_VALUE = pattern(pos:pos)
+                 CHAR_TYPE  = POSIX_CHAR_TYPE(CHAR_VALUE)                
+              case (LEXER_WINDOWS)
+                 CHAR_VALUE = pattern(pos:pos)
+                 CHAR_TYPE  = MS_CHAR_TYPE(CHAR_VALUE)
+              case default
+                 CHAR_VALUE = NULL_CHAR
+                 CHAR_TYPE  = CHAR_UNKNOWN
+                 error      = new_token(SYNTAX_ERROR,"INVALID LEXER")
+           end select              
+        
+       end if
+       
+       endassociate       
+    
+    end subroutine parse_char
+    
     ! High level interface: return a list of strings, with error type
     function split_bool(pattern,success) result(list)
         character(*),      intent(in)  :: pattern
@@ -171,6 +284,49 @@ module shlex_module
         call tokens_to_strings(tokens,list)
 
     end function split_error
+    
+    ! High level interface: return a list of strings, with error type
+    function mslex_split_bool(pattern,like_cmd,ucrt,success) result(list)
+        character(*),      intent(in)  :: pattern
+        logical, optional, intent(in)  :: like_cmd,ucrt
+        logical, optional, intent(out) :: success
+        character(kind=SCK,len=:), allocatable :: list(:)
+        type(shlex_token) :: error
+
+        list = mslex_split_error(pattern,like_cmd,ucrt,error)
+        if (present(success)) success = error%type==NO_ERROR
+
+    end function mslex_split_bool
+
+    ! High level interface: return a list of strings
+    function mslex_split_error(pattern,like_cmd,ucrt,error) result(list)
+        character(*),      intent(in)  :: pattern
+        logical, optional, intent(in)  :: like_cmd,ucrt
+        type(shlex_token), intent(out) :: error
+        character(kind=SCK,len=:), allocatable :: list(:)
+        
+        logical :: cmd
+        type(shlex_token) :: caret_error
+        character(kind=SCK,len=:), allocatable :: nocaret
+        type(shlex_token), allocatable :: tokens(:)
+        
+        cmd = .true.
+        if (present(like_cmd)) cmd = like_cmd
+        
+        if (cmd .and. scan(pattern,META_CHARS)>0) then 
+            nocaret = ms_strip_carets_like_cmd(pattern,caret_error)            
+            tokens = mslex(nocaret,error,ucrt=ucrt)
+            
+            ! Return the first error occurred
+            if (caret_error%type/=NO_ERROR) error = caret_error
+            
+        else
+            tokens = mslex(pattern,error,ucrt=ucrt)
+        end if
+
+        call tokens_to_strings(tokens,list)
+
+    end function mslex_split_error    
     
     ! Convert a list of tokens to strings
     pure subroutine tokens_to_strings(tokens,list)
@@ -293,6 +449,19 @@ module shlex_module
     end function shlex_bool
 
     ! High level interface: return a list of tokens
+    function mslex_bool(pattern,success,keep_quotes,ucrt) result(list)
+        character(*),      intent(in)  :: pattern
+        logical, optional, intent(out) :: success
+        logical, optional, intent(in)  :: keep_quotes
+        logical, optional, intent(in)  :: ucrt
+        type(shlex_token), allocatable :: list(:)
+        type(shlex_token) :: error
+
+        list = mslex_error(pattern,error,keep_quotes,ucrt)
+        if (present(success)) success = error%type==NO_ERROR
+    end function mslex_bool
+
+    ! High level interface: return a list of tokens
     function shlex_error(pattern,error,keep_quotes) result(list)
         character(*),      intent(in)  :: pattern
         type(shlex_token), intent(out) :: error
@@ -303,7 +472,7 @@ module shlex_module
         type(shlex_token) :: next
 
         ! Initialize lexer
-        call s%new(pattern,keep_quotes)
+        call s%new(LEXER_POSIX,pattern,keep_quotes)
 
         allocate(list(0))
         error = new_token(NO_ERROR,"SUCCESS")
@@ -322,47 +491,454 @@ module shlex_module
                   ! Keep reading
                   list = [list,next]
             end select
-
+            
         end do
 
         return
 
     end function shlex_error
 
+
+    
+    pure integer function n_previous_escapes(this,pattern) result(prev)
+        class(shlex_lexer), intent(in) :: this
+        character(kind=SCK,len=*), intent(in) :: pattern
+        
+        integer :: pos
+        
+        prev = 0
+        pos  = this%input_position
+        
+        do while (pos>1)
+            pos = pos-1
+            if (scan(pattern(pos:pos),ESCAPE_CHARS)>0) then 
+                prev = prev+1
+            else
+                exit
+            end if
+        end do
+        
+    end function n_previous_escapes
+
+    pure integer function n_next_quotes(this,pattern) result(next)
+        class(shlex_lexer), intent(in) :: this
+        character(kind=SCK,len=*), intent(in) :: pattern
+        
+        integer :: pos
+        
+        next = 0
+        pos  = this%input_position
+        
+        do while (pos<this%input_length)
+            pos = pos+1
+            if (pattern(pos:pos)==DOUBLE_QUOTE) then 
+                next = next+1
+            else
+                exit
+            end if
+        end do
+        
+    end function n_next_quotes
+    
+    ! High level interface: return a list of tokens
+    function mslex_error(pattern,error,keep_quotes,ucrt) result(list)
+        character(*),      intent(in)  :: pattern
+        type(shlex_token), intent(out) :: error
+        logical, optional, intent(in)  :: keep_quotes
+        logical, optional, intent(in)  :: ucrt
+        type(shlex_token), allocatable :: list(:)
+
+        type(shlex_lexer) :: s
+        type(shlex_token), allocatable :: lmsvcrt(:)
+        type(mslex_group), allocatable :: groups(:)
+        type(mslex_group) :: next
+        logical :: ambiguous 
+
+        ! Initialize lexer
+        call s%new(LEXER_WINDOWS,pattern,keep_quotes)
+
+        allocate(groups(0))
+        error = new_token(NO_ERROR,"SUCCESS")
+        do while (error%type==NO_ERROR)
+
+            next = mslex_scan_stream(s,pattern,error)
+            
+            select case (error%type)
+               case (EOF_ERROR)
+                  ! Finished reading
+                  error = new_token(NO_ERROR,"SUCCESS")
+                  exit
+               case (SYNTAX_ERROR)
+                  ! Something happened
+                  exit
+               case default
+                  ! Keep reading
+                  groups = [groups,next]
+            end select
+            
+        end do
+        
+        if (present(ucrt)) then 
+            ! There is a UCRT request
+            if (ucrt) then 
+                list = parse_ucrt_groups(groups)
+            else
+                list = parse_msvcrt_groups(groups)
+            end if
+        else
+            ! No specific request: check both modes and raise an error if they differ
+            list = parse_ucrt_groups(groups)            
+            lmsvcrt = parse_msvcrt_groups(groups)
+            
+            ambiguous = size(list)/=size(lmsvcrt)
+            if (.not.ambiguous) ambiguous = any(list/=lmsvcrt)
+            if (ambiguous) error = new_token(SYNTAX_ERROR,'Ambiguous string: MSVCRT and UCRT runtimes differ')
+        
+        endif            
+        
+        return
+
+    end function mslex_error    
+
+    ! Quote a string for use as a command line argument in DOS or Windows.
+    ! If ``for_cmd`` is .true., this will quote the strings so the result will be parsed correctly
+    ! by ``cmd.exe`` and then by ``CommandLineToArgvW``.  If false, then this will quote the strings 
+    ! so the result will be parsed correctly when passed directly to ``CommandLineToArgvW``.
+    function mslex_quote(s,for_cmd) result(quoted)
+        character(*),      intent(in)  :: s
+        logical, optional, intent(in)  :: for_cmd
+        character(:), allocatable :: quoted
+        
+        logical :: cmd
+        character(:), allocatable :: alt
+        
+        cmd = .true.
+        if (present(for_cmd)) cmd = for_cmd
+        
+        if (len(s)<=0) then 
+            quoted = DOUBLE_QUOTE//DOUBLE_QUOTE
+            
+        elseif (cmd) then 
+            
+            if (scan(s,META_OR_SPACE)<=0) then 
+                quoted = s
+            else
+                
+                quoted = ms_quote_for_cmd(s)
+                
+                if (scan(s,SPACE_CHARS//DOUBLE_QUOTE)<=0) then 
+                    
+                    ! for example the string Çx\!È can be quoted as Çx\^!È, but
+                    ! # _quote_for_cmd would quote it as Ç"x\\"^!È                    
+                    alt = ms_alternative_quote_for_cmd(s)
+                    
+                    ! Use caret-escaped version if it's shorter
+                    if (len(alt) < len(quoted)) call move_alloc(from=alt,to=quoted)
+
+                end if
+
+            endif
+            
+        else
+            if (scan(s,SPACE_CHARS)==0) then 
+                quoted = ms_escape_quotes(s)
+            else
+                quoted = ms_wrap_in_quotes(ms_escape_quotes(s))
+            end if
+        end if        
+
+        return
+
+    end function mslex_quote
+
+    type(mslex_group) function mslex_scan_stream(this, pattern, error) result(group)
+        class(shlex_lexer), intent(inout) :: this
+        character(kind=SCK,len=*), intent(in) :: pattern
+        type(shlex_token), intent(out) :: error
+
+        character(kind=SCK) :: c
+        integer :: start, in_group
+        
+        associate(pos => this%input_position)
+
+        group%spaces  = ""
+        group%slashes = ""
+        group%quotes  = ""
+        group%text    = ""
+
+        if (pos>=this%input_length) then
+            error = new_token(EOF_ERROR, "END OF FILE")
+        else
+            error = new_token(NO_ERROR, "SUCCESS")
+        end if
+        
+        in_group = 0
+
+        do while (pos < this%input_length)
+            
+            pos = pos+1
+            
+            ! Identify next group
+            ! Identify starting group                    
+            if (in_group<=0 .and. scan(pattern(pos:pos),SPACE_CHARS)>0) then 
+                
+                in_group = 1
+                start = pos
+                
+            elseif (in_group<=1 .and. scan(pattern(pos:pos),ESCAPE_CHARS)>0) then 
+                
+                in_group = 2
+                start = pos
+                
+            elseif (in_group<=2 .and. scan(pattern(pos:pos),DOUBLE_QUOTE)>0) then 
+                
+                ! (\"+) group 3: one or more double quotes
+                in_group = 3
+                start = pos
+                
+            else
+                
+                ! (.[^\s\\\"]*) group 4: normal characters (text), starting with any character
+                in_group = 4
+                start = pos
+                
+            end if            
+            
+            select case (in_group)
+            
+                case (1)
+                    
+                    ! Check where is the end of this group
+                    do while (scan(pattern(pos:pos),SPACE_CHARS)>0)
+                        pos = pos+1
+                        if (pos>this%input_length) exit
+                    end do
+                    pos = pos-1
+                    
+                    ! Store token
+                    group%spaces = pattern(start:pos)
+                    
+                case (2)
+                    
+                    ! Check where is the end of this group
+                    do while (scan(pattern(pos:pos),ESCAPE_CHARS)>0)
+                        pos = pos+1
+                        if (pos>this%input_length) exit
+                    end do
+                    pos = pos-1
+                    
+                    ! Store token
+                    group%slashes = pattern(start:pos)      
+                    
+                case (3)
+                    
+                    ! Check where is the end of this group
+                    do while (scan(pattern(pos:pos),DOUBLE_QUOTE)>0)
+                        pos = pos+1
+                        if (pos>this%input_length) exit
+                    end do
+                    pos = pos-1
+                    
+                    ! Store token
+                    group%quotes = pattern(start:pos)   
+                    
+                case (4)
+                    
+                    ! Check where is the end of this group
+                    do while (scan(pattern(pos:pos),SPACE_CHARS//ESCAPE_CHARS//DOUBLE_QUOTE)==0)
+                        pos = pos+1
+                        if (pos>this%input_length) exit
+                    end do
+                    pos = pos-1
+                    
+                    ! Store token
+                    group%text = pattern(start:pos)       
+                    
+                    ! After group 4, we exit
+                    exit        
+                    
+            end select
+
+        end do
+        
+        ! Group 2 adn 3 are linked: (\s+)|(\\*)(\"+)|(.[^\s\\\"]*)
+        ! slashes with no quotes means that it all goes into text
+        if (len(group%slashes)>0 .and. len(group%quotes)<=0) then 
+           group%text = group%slashes//group%quotes//group%text
+           group%slashes = ""
+           group%quotes=""
+        endif
+
+        endassociate
+        
+    end function mslex_scan_stream
+
+    function parse_msvcrt_groups(groups) result(list)
+        type(mslex_group), optional, intent(in) :: groups(:)
+        type(shlex_token), allocatable :: list(:)
+
+        character(kind=SCK,len=:), allocatable :: buffer
+        integer :: i
+        logical :: quote_mode
+        integer :: n_slashes, n_quotes, magic_sum
+        logical :: slashes_odd
+
+        quote_mode = .false.        
+        allocate(list(0))
+        if (.not.present(groups)) return
+        if (size(groups)<=0) return
+
+        group_loop: do i = 1, size(groups)
+        
+            if (len(groups(i)%spaces) > 0) then
+                
+                if (quote_mode) then
+                    call yield(buffer,groups(i)%spaces)
+                elseif (allocated(buffer)) then
+                    
+                    ! End of quote-delimited group: emit buffer (even if "")
+                    if (.not.allocated(buffer)) buffer = ""
+                    list = [list, new_token(TOKEN_WORD, buffer)]
+                    deallocate(buffer)
+                    quote_mode = .false.
+                end if
+            endif
+
+            if (len(groups(i)%quotes) > 0) then
+                n_slashes   = len(groups(i)%slashes)
+                n_quotes    = len(groups(i)%quotes)
+                slashes_odd = mod(n_slashes, 2) /= 0
+                call yield(buffer,repeat('\', n_slashes / 2))
+                magic_sum   = n_quotes + merge(1, 0, quote_mode) + 2 * merge(1, 0, slashes_odd)
+                call yield(buffer,repeat('"', magic_sum / 3))
+                quote_mode  = mod(magic_sum, 3) == 1
+            endif
+
+            if (len(groups(i)%text) > 0) call yield(buffer,groups(i)%text)
+            
+        end do group_loop
+
+        ! Always emit buffer (even if it's "")
+        if (allocated(buffer)) list = [list, new_token(TOKEN_WORD, buffer)]
+        
+    end function parse_msvcrt_groups
+
+    function parse_ucrt_groups(groups) result(list)
+        type(mslex_group), optional, intent(in) :: groups(:)
+        type(shlex_token), allocatable :: list(:)
+
+        character(kind=SCK,len=:), allocatable :: buffer
+        integer :: i
+        logical :: quote_mode
+        integer :: n_slashes
+        character(len=:), allocatable :: quotes, slashes
+        character(kind=SCK,len=1) :: c
+
+        quote_mode = .false.
+        allocate(list(0))
+        if (.not.present(groups)) return
+        if (size(groups) <= 0) return
+
+        group_loop: do i = 1, size(groups)
+
+            if (len(groups(i)%spaces) > 0) then
+                if (quote_mode) then
+                    call yield(buffer, groups(i)%spaces)
+                elseif (allocated(buffer)) then
+                    if (.not.allocated(buffer)) buffer = ""
+                    ! Emit current token
+                    list = [list, new_token(TOKEN_WORD, buffer)]
+                    deallocate(buffer)
+                end if
+            end if
+
+            if (len(groups(i)%quotes) > 0) then
+                slashes   = groups(i)%slashes
+                quotes    = groups(i)%quotes
+                n_slashes = len(slashes)
+                
+                if (n_slashes > 0) then
+                    call yield(buffer, slashes(:n_slashes/2))
+                    if (mod(n_slashes, 2) /= 0) then
+                        call yield(buffer, DOUBLE_QUOTE)
+                        if (len(quotes) > 0) quotes = quotes(2:)
+                    end if
+                end if
+
+                ! Handle remaining quotes
+                do while (len(quotes) > 0)
+                    
+                    if (quote_mode .and. len(quotes) >= 2) then                        
+                        call yield(buffer, DOUBLE_QUOTE)
+                        quotes = quotes(3:) 
+                    else                        
+                        quote_mode = .not. quote_mode
+                        quotes = quotes(2:)
+                    end if
+                end do
+            end if
+
+            if (len(groups(i)%text) > 0) call yield(buffer, groups(i)%text)
+
+        end do group_loop
+
+        if (allocated(buffer)) list = [list, new_token(TOKEN_WORD, buffer)]
+
+    end function parse_ucrt_groups
+
+
+    function parse_escaping_groups(groups) result(escaped)
+        type(mslex_group), optional, intent(in) :: groups(:)
+        character(:), allocatable :: escaped
+
+        integer :: i
+
+        escaped = ""
+
+        if (.not. present(groups)) return
+
+        do i = 1, size(groups)
+            if (len(groups(i)%quotes) > 0) then
+                ! Case: quotes are present
+                call yield(escaped, groups(i)%slashes)
+                call yield(escaped, groups(i)%slashes)
+                call yield(escaped, repeat('\"', len(groups(i)%quotes)))
+            else
+                ! Otherwise, just text
+                call yield(escaped, groups(i)%text)
+            end if
+        end do
+    end function parse_escaping_groups
+
+
+    pure subroutine yield(buffer,text)
+        character(:), allocatable, intent(inout) :: buffer
+        character(*), intent(in) :: text
+        if (.not.allocated(buffer)) allocate(character(0) :: buffer)
+        buffer = buffer//text
+    end subroutine yield
+
     type(shlex_token) function scan_stream(this,pattern,error) result(token)
         class(shlex_lexer), intent(inout) :: this
         character(kind=SCK,len=*), intent(in) :: pattern
         type(shlex_token), intent(out) :: error
 
-        integer :: state,next_type,token_type
+        integer :: state,next_type,token_type,prev_escapes,next_quotes
+        logical :: in_quotes_quote,start_quote
         character(kind=SCK) :: next_char
         character(kind=SCK,len=:), allocatable :: value
 
         state      = STATE_START
         token_type = TOKEN_UNKNOWN
         allocate(character(kind=SCK,len=0) :: value)
+        error = new_token(NO_ERROR,"SUCCESS")
 
         read_chars: do
 
            ! Get next character
            this%input_position = this%input_position + 1
-           if (this%input_position<=this%input_length) then
-              if (len(pattern)>=this%input_position) then
-                 next_char = pattern(this%input_position:this%input_position)
-                 next_type = CHAR_TYPE(next_char)
-                 error     = new_token(NO_ERROR,"SUCCESS")
-              else
-                 ! Should never happen
-                 call destroy_token(token)
-                 error = new_token(SYNTAX_ERROR,"END-OF-RECORD reading pattern")
-                 return
-              endif
-           else
-              next_char = ""
-              next_type = CHAR_EOF
-              error = new_token(NO_ERROR,"SUCCESS")
-           end if
-
+           call this%parse_char(pattern,next_type,next_char,error)
+           
            select case (state)
 
               ! No characters read yet
@@ -380,13 +956,16 @@ module shlex_module
                          state      = STATE_QUOTING_ESCAPING
                          if (this%keep_quotes) value = value//next_char
                       case (CHAR_NONESCAPING_QUOTE)
+                        
+                         ! Quote with no previous escapes (start) is necessarily a quoting character
                          token_type = TOKEN_QUOTED_WORD
                          state      = STATE_QUOTING
-                         if (this%keep_quotes) value = value//next_char
-                      case (CHAR_ESCAPE)
+                         if (this%keep_quotes) value = value//next_char                            
+                                               
+                      case (CHAR_ESCAPE) ! posix only                        
                          token_type = TOKEN_WORD
-                         state      = STATE_ESCAPING
-                      case (CHAR_COMMENT)
+                         state      = STATE_ESCAPING   
+                      case (CHAR_COMMENT) ! posix only
                          token_type = TOKEN_COMMENT
                          state      = STATE_COMMENT
                       case default
@@ -406,8 +985,9 @@ module shlex_module
                          state = STATE_QUOTING_ESCAPING
                          if (this%keep_quotes) value = value//next_char
                       case (CHAR_NONESCAPING_QUOTE)
+                         start_quote = .true.   
                          state = STATE_QUOTING
-                         if (this%keep_quotes) value = value//next_char
+                         if (this%keep_quotes) value = value // next_char                             
                       case (CHAR_ESCAPE)
                          state = STATE_ESCAPING
                       case default
@@ -450,7 +1030,7 @@ module shlex_module
                       case (CHAR_EOF)
                          ! Error: EOF when expecting closing quote
                          error = new_token(SYNTAX_ERROR,"END-OF-FILE when expecting closing quote")
-                         token = new_token(token_type,value)
+                         token = new_token(token_type,value)                            
                          return
                       case (CHAR_ESCAPING_QUOTE)
                          state = STATE_INWORD
@@ -466,17 +1046,37 @@ module shlex_module
               case (STATE_QUOTING)
 
                    select case (next_type)
+
                       case (CHAR_EOF)
-                         ! Error: EOF when expecting closing quote
-                         error = new_token(SYNTAX_ERROR,"END-OF-FILE when expecting closing quote")
-                         token = new_token(token_type,value)
+                        
+                         ! POSIX requires closing quote
+                         error = new_token(SYNTAX_ERROR, "END-OF-FILE when expecting closing quote")
+                         token = new_token(token_type, value)
                          return
+
                       case (CHAR_NONESCAPING_QUOTE)
+
+                         ! Single quote -> end quoting
                          state = STATE_INWORD
-                         if (this%keep_quotes) value = value//next_char
+                         if (this%keep_quotes) value = value // next_char
+
+                         ! Check for immediate EOF or whitespace -> return token early
+                         if (this%input_position >= this%input_length) then
+                            token = new_token(token_type, value)
+                            return
+                         end if
+
+                         if (this%input_position < this%input_length) then
+                             if (pattern(this%input_position+1:this%input_position+1) == ' ') then
+                                 token = new_token(token_type, value)
+                                 return
+                             end if
+                         end if
+
                       case default
-                         value = value//next_char
+                         value = value // next_char
                    end select
+
 
               ! Inside a comment string
               case (STATE_COMMENT)
@@ -509,25 +1109,72 @@ module shlex_module
 
     end function scan_stream
 
+    ! Check if should start quoting accortding to MS rules
+    logical function ms_start_quoting(this, pattern, value, error) result(start_quoting)
+        class(shlex_lexer), intent(inout) :: this
+        character(kind=SCK, len=*), intent(in) :: pattern
+        character(kind=SCK, len=:), allocatable, intent(inout) :: value
+        type(shlex_token), intent(out) :: error
+
+        integer :: prev_escapes, next_quotes, total_quotes
+        logical :: at_start, ends_at_eof
+
+        start_quoting = .false.
+
+        if (this%lexer /= LEXER_WINDOWS) return
+        if (this%input_position > this%input_length) return
+        if (pattern(this%input_position:this%input_position) /= DOUBLE_QUOTE) return
+
+        ! Determine escapes before this quote
+        prev_escapes = n_previous_escapes(this, pattern)
+        at_start = this%input_position == 1
+
+        ! Can start quoting if it's the first char or an even number of escapes
+        if (at_start .or. mod(prev_escapes, 2) == 0) then
+            ! Peek ahead to see how many more quotes follow
+            next_quotes = n_next_quotes(this, pattern)
+            total_quotes = 1 + next_quotes
+
+            ! Check whether the final quote ends at EOF
+            ends_at_eof = .false.!next_quotes>1 .and. this%input_position + next_quotes >= this%input_length
+
+            if ((at_start .or. mod(total_quotes, 2) /= 0) .and. .not.ends_at_eof) then
+                ! ODD total + not at EOF: start quoting, fold literal quotes
+                value = value // repeat(DOUBLE_QUOTE, next_quotes / 2)
+                this%input_position = this%input_position + next_quotes
+                start_quoting = .true.           
+            else
+                ! EVEN total, or ODD but last quote is at EOF: treat all as literal
+                value = value // repeat(DOUBLE_QUOTE, total_quotes / 2)
+                this%input_position = this%input_position + next_quotes
+                start_quoting = .false.
+            end if
+        end if
+    end function ms_start_quoting
+
+
+
     ! Cleanup
     elemental subroutine destroy(this)
        class(shlex_lexer), intent(inout) :: this
 
        this%input_length   = -1
        this%input_position = 0
+       this%lexer          = LEXER_POSIX
        this%keep_quotes    = .false.
 
     end subroutine destroy
 
     ! Initialize lexer
-    pure subroutine new(this,pattern,keep_quotes)
+    pure subroutine new(this,lexer,pattern,keep_quotes)
        class(shlex_lexer), intent(inout) :: this
+       integer, intent(in) :: lexer
        character(kind=SCK, len=*), intent(in) :: pattern
        logical, optional, intent(in) :: keep_quotes
  
        call this%destroy()
-
-       this%input_position = 0
+       
+       this%lexer = lexer       
        this%input_length = len(pattern)
        if (present(keep_quotes)) this%keep_quotes = keep_quotes
 
@@ -540,6 +1187,323 @@ module shlex_module
         msg = trim(token%string)
         
     end function print_token
+    
+    elemental logical function token_eq(a,b)
+       class(shlex_token), intent(in) :: a,b
+       token_eq = a%type==b%type .and. a%string==b%string
+    end function token_eq
+
+    elemental logical function token_neq(a,b)
+       class(shlex_token), intent(in) :: a,b
+       token_neq = .not.token_eq(a,b)
+    end function token_neq    
+
+    pure function group_pretty_print(this) result(msg)
+        class(mslex_group), intent(in) :: this
+        character(:), allocatable :: msg
+
+        character(:), allocatable :: s, bs, qs, tx
+        s  = "spaces:  [" // this%spaces  // "]"
+        bs = "slashes: [" // this%slashes // "]"
+        qs = "quotes:  [" // this%quotes  // "]"
+        tx = "text:    [" // this%text    // "]"
+
+        msg = s // ' | ' // bs // ' | ' // qs // ' | ' // tx
+        
+    end function group_pretty_print
+
+    ! Escape any quotes found in string by prefixing them with an appropriate
+    ! number of backslashes.
+        
+    pure function ms_escape_quotes(s) result(escaped)
+       character(len=*), intent(in) :: s
+       character(:), allocatable :: escaped
+       
+       integer :: next_quotes,total_quotes,slashes,bpos
+       type(shlex_lexer) :: lex
+       character(len=2*len(s)) :: buffer
+       
+       associate(pos=>lex%input_position, length=>lex%input_length)
+       
+       bpos = 0
+       call lex%new(LEXER_WINDOWS,s)
+       
+       do while (pos<length)
+        
+           pos = pos+1
+           
+           if (scan(s(pos:pos),DOUBLE_QUOTE)>0) then 
+            
+              ! Quote found! count how many follow 
+              next_quotes  = n_next_quotes(lex,s)
+              total_quotes = 1 + next_quotes              
+              slashes      = n_previous_escapes(lex,s)
+              
+              ! Escapes must be doubled
+              if (slashes>0) then 
+                  buffer(bpos+1:bpos+slashes) = repeat('\',slashes)
+                  bpos = bpos+slashes                 
+              end if
+              
+              ! Escape and add quotes
+              buffer(bpos+1:bpos+2*total_quotes) = repeat('\"',total_quotes)
+              bpos = bpos+2*total_quotes
+              
+              ! Update seek position 
+              pos = pos + next_quotes
+              
+           else
+            
+              ! Simple, text character
+              buffer(bpos+1:bpos+1) = s(pos:pos)
+              bpos = bpos+1
+            
+           end if        
+        
+       end do
+       
+       allocate(character(bpos) :: escaped)
+       if (bpos>0) escaped(1:bpos) = buffer(1:bpos)
+       
+       endassociate
+       
+    end function ms_escape_quotes
+
+    ! Wrap a string whose internal quotes have been escaped in double quotes.
+    ! This handles adding the correct number of backslashes in front of the closing quote.    
+    pure function ms_wrap_in_quotes(s) result(wrapped)
+       character(kind=SCK,len=*), intent(in) :: s
+       character(kind=SCK,len=:), allocatable :: wrapped
+       
+       integer :: slashes,pos
+       
+       ! Check if there are trailing slashes that need to be doubled
+       slashes = 0
+       pos = len(s)+1
+       trailing_slashes: do while (pos>1)
+          pos = pos-1
+          if (s(pos:pos)=='\') then 
+             slashes = slashes+1
+          else
+             exit trailing_slashes                
+          end if
+       end do trailing_slashes
+       
+       wrapped = '"' // s // repeat('\',slashes) // '"'
+       
+    end function ms_wrap_in_quotes    
+     
+     
+    ! Quote a string for cmd. Split the string into sections that can be quoted (or used verbatim),
+    ! and runs of % and ! characters which must be escaped with carets outside of quotes, and runs of 
+    ! quote characters, which must be escaped with a caret for cmd.exe, and a backslash for
+    ! CommandLineToArgvW.
+    pure function ms_quote_for_cmd(s) result(wrapped)
+       character(kind=SCK,len=*), intent(in), target :: s
+       character(kind=SCK,len=:), allocatable :: wrapped
+
+       type(shlex_lexer) :: lex
+       logical :: in_block
+       integer :: start,bpos
+       character(len=3*len(s)) :: buffer
+       
+       associate(pos=>lex%input_position, length=>lex%input_length)
+       
+       bpos = 0
+       call lex%new(LEXER_WINDOWS,s)
+       in_block = .false.
+       start = 0
+       
+       do while (pos<length)
+        
+           pos = pos+1
+           
+           if (scan(s(pos:pos),DOUBLE_QUOTE)>0) then 
+            
+              ! Flush previous block
+              call flush_block(in_block,start,pos,s,buffer,bpos)
+            
+              ! Quote found! Escape it with '\^"'
+              buffer(bpos+1:bpos+3) = '\^"'
+              bpos = bpos+3            
+            
+           elseif (scan(s(pos:pos),'%!')>0) then  
+            
+              ! Flush previous block
+              call flush_block(in_block,start,pos,s,buffer,bpos)
+            
+              ! Marker found! Escape it with '^'
+              buffer(bpos+1:bpos+2) = '^'//s(pos:pos)
+              bpos = bpos+2
+                            
+           else
+            
+              ! Normal character block
+              if (.not.in_block) then 
+                 start    = pos
+                 in_block = .true.
+              end if
+            
+           end if        
+        
+       end do
+       
+       ! Flush previous block
+       call flush_block(in_block,start,length+1,s,buffer,bpos)
+       
+       allocate(character(len=bpos) :: wrapped)
+       if (bpos>0) wrapped(1:bpos) = buffer(1:bpos)
+       
+       endassociate
+       
+       contains
+       
+       pure subroutine flush_block(in_block,start,pos,s,buffer,bpos)
+          logical, intent(inout) :: in_block
+          character(*), intent(in) :: s
+          character(*), intent(inout) :: buffer
+          integer, intent(in) :: start,pos
+          integer, intent(inout) :: bpos
+        
+          integer :: n
+          character(len=:,kind=SCK), allocatable :: quoted,blk
+        
+          if (in_block) then 
+             
+             blk = s(start:pos-1)
+             n = len(blk)
+             
+             if (n>0) then 
+                 if (scan(blk,META_OR_SPACE)>0 .or. blk(n:n)=='\') then 
+                     quoted = ms_wrap_in_quotes(blk)
+                     
+                     buffer(bpos+1:bpos+len(quoted)) = quoted
+                     bpos = bpos+len(quoted)
+                 else   
+                     buffer(bpos+1:bpos+n) = blk
+                     bpos = bpos+n                
+                 end if                 
+             endif
+             
+          end if   
+          
+          in_block = .false.       
+        
+       end subroutine flush_block 
+              
+    end function ms_quote_for_cmd
+    
+    pure function ms_alternative_quote_for_cmd(s) result(wrapped)
+       character(kind=SCK,len=*), intent(in), target :: s
+       character(kind=SCK,len=:), allocatable :: wrapped
+
+       type(shlex_lexer) :: lex
+       integer :: bpos
+       character(len=2*len(s)) :: buffer
+       
+       associate(pos=>lex%input_position, length=>lex%input_length)
+       
+       bpos = 0
+       call lex%new(LEXER_WINDOWS,s)
+       
+       do while (pos<length)
+        
+           pos = pos+1
+           
+           if (scan(s(pos:pos),META_CHARS)>0) then 
+            
+              ! Quote found! Escape it with '\^"'
+              bpos = bpos+1
+              buffer(bpos:bpos) = '^'
+              
+           endif 
+            
+           bpos = bpos+1 
+           buffer(bpos:bpos) = s(pos:pos)
+              
+       end do
+    
+       allocate(character(len=bpos) :: wrapped)
+       if (bpos>0) wrapped(1:bpos) = buffer(1:bpos)
+       
+       endassociate
+       
+    end function ms_alternative_quote_for_cmd
+    
+    function ms_strip_carets_like_cmd(s,error) result(unescaped)
+        character(kind=SCK,len=*), intent(in), target :: s
+        character(len=:), allocatable :: unescaped
+        type(shlex_token), intent(out) :: error
+
+        type(shlex_lexer) :: lex
+        logical :: in_quote,escaping,quoting
+        integer :: bpos, pos, length
+        character(len=2*len(s)) :: buffer
+        character :: c
+        
+        associate(pos => lex%input_position, length => lex%input_length)
+
+        call lex%new(LEXER_WINDOWS, s)
+        error = new_token(NO_ERROR,"SUCCESS")
+        bpos = 0
+        in_quote  = .false.
+        escaping  = .false.
+        quoting   = .false.
+
+        do while (pos < length)
+            pos = pos + 1
+            c = s(pos:pos)
+            escaping = .false.
+            quoting  = .false.
+
+            if (c == DOUBLE_QUOTE) then
+                
+                in_quote = .not. in_quote
+                bpos = bpos + 1
+                buffer(bpos:bpos) = DOUBLE_QUOTE
+                quoting  = .true.
+
+            elseif (c == CARET_CHAR) then
+                if (in_quote) then
+                    ! Inside quotes: preserve the caret
+                    bpos = bpos + 1
+                    buffer(bpos:bpos) = c
+                else
+                    
+                    escaping = .true.
+                    
+                    if (pos < length) then
+                        pos = pos + 1
+                        c = s(pos:pos)
+                        bpos = bpos + 1
+                        buffer(bpos:bpos) = c
+                    end if
+                    ! Else: discard trailing caret
+                end if
+
+            else
+                
+                ! Yield text
+                bpos = bpos + 1
+                buffer(bpos:bpos) = c
+
+            end if
+            
+            ! Check for unquoted metacharacters in raw text, but do not interrupt
+            if (.not. (escaping .or. quoting)) then
+                if ((in_quote .and. scan(c, META_INSIDE_QUOTES) > 0) .or. &
+                    ((.not. in_quote) .and. scan(c, META_CHARS) > 0)) then
+                    error = new_token(SYNTAX_ERROR, "Unquoted CMD metacharacters in string: '"//s//"'")
+                end if
+            end if
+            
+        end do
+
+        allocate(character(len=bpos) :: unescaped)
+        if (bpos > 0) unescaped = buffer(1:bpos)
+
+        endassociate
+    end function ms_strip_carets_like_cmd
 
 end module shlex_module
 

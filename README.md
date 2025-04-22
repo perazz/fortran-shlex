@@ -1,113 +1,125 @@
 # fortran-shlex
-Modern Fortran port of Python's shlex shell-like lexer. This package implements the simple shlex lexer, inspired by the Python shlex module, and based on the Golang implementation. The interface comes with two functions, `split` which parses a command-like string and returns an array of allocatable character strings; and `shlex` that perform the same, but return a list of `type(shlex_token)` tokens. Error control is optional, via a boolean `success` keyword or a token that may return an error string.
 
-## Install
+**Modern Fortran port of Python's `shlex` shell-like lexer, now with Windows `mslex` support.**
 
-Just copy and paste `shlex_module.f90` into your project. Alternatively, `fortran-shlex` can be used as a dependency in your [Fortran Package Manager]() project: 
+This package provides two main lexer interfaces:
+- `shlex`: a Unix-style shell lexer, modeled after Python's `shlex`, and
+- `mslex`: a Windows-style lexer that emulates `cmd.exe` and `CommandLineToArgvW` behavior, inspired by the `mslex` Python module.
 
+## 🆕 Version 2.0.0 — MSLEX for Windows/DOS-style argument splitting
+
+The new **MSLEX API** allows parsing and quoting of strings according to Windows command-line conventions, which differ from POSIX shells.
+
+### `ms_split(pattern, like_cmd, ucrt, success) → character(:), allocatable, dimension(:)`
+### `ms_split(pattern, like_cmd, ucrt, error) → character(:), allocatable, dimension(:)`
+
+Split a command-line string into arguments using Windows semantics.
+
+**Arguments:**
+- `pattern` (required): a `character(*)` input string.
+- `like_cmd` (optional): if `.true.` (default), emulate both `cmd.exe` and `CommandLineToArgvW`.
+- `ucrt` (optional): if `.true.`, parse using UCRT (modern CRT); use `msvcrt.dll` if `.false.`. If not provided, both methods are compared and if they differ (ambiguous pattern), an error is raised.
+- `success` (optional): returns `.false.` if the string is invalid.
+- `error` (optional): alternative error return method, returns a `type(shlex_token)` containing an error flag and message.
+
+```fortran
+character(len=:), allocatable :: args(:)
+logical :: ok
+
+args = ms_split('"my file.txt" -DVALUE=42', like_cmd=.true., success=ok)
+if (.not.ok) print *, 'mslex error'
 ```
+
+### `ms_quote(s, for_cmd) → character(:), allocatable`
+
+Quote a string so that it is parsed correctly by Windows command-line interpreters.
+
+- If `for_cmd = .true.`, quotes for `cmd.exe`, then `CommandLineToArgvW`.
+- If `for_cmd = .false.`, quotes for direct use with `CommandLineToArgvW`.
+
+```fortran
+print *, ms_quote('my file.txt')                 ! → "my file.txt"
+print *, ms_quote('^& dangerous', for_cmd=.true.) ! → "^& dangerous"
+```
+
+---
+
+## 🔧 Install
+
+Just copy and paste `shlex_module.f90` into your project. Or, use as a dependency in your [Fortran Package Manager](https://github.com/fortran-lang/fpm) project:
+
+```toml
 [dependencies]
 fortran-shlex = { git="https://github.com/perazz/fortran-shlex.git" }
 ```
-  
-## Usage
 
-The `split` function returns a list of strings, split according to unix shell rules, which support: 
-- escaping quotes (`"..."`)
-- non-escaping quotes (`'...'`)
-- line feed, carriage return etc.
+---
+
+## 🐚 POSIX-like Usage (default `split` / `shlex`)
+
+### `split(string, [success], [error], [join_spaced], [keep_quotes]) → character(:), allocatable`
+
+Splits a command-like string using Unix shell rules.
 
 ```fortran
-use shlex_module
-
 character(len=:), allocatable :: tokens(:)
-type(shlex_token) :: error
-logical :: success
-
-! Simple usage
-tokens = split('my -W"ery" -Llong //Input \n "string"')
-
-! With logical error flag
-tokens = split('whatever ',success=success)
-
-! With complete error flag
-tokens = split('whatever ',error)
-print *, 'error message=',error%string
+tokens = split('gfortran -I /include "quoted string"')
 ```
 
-And the `shlex` function has the same API, but returns a list of `type(shlex_token)`s instead of an allocatable character array. 
+### `shlex(string, [success], [error], [join_spaced], [keep_quotes]) → type(shlex_token), allocatable`
 
-```fortran
-use shlex_module
-
-type(shlex_token), allocatable :: tokens(:)
-type(shlex_token) :: error
-logical :: success
-
-! Simple usage
-tokens = shlex('my -W"ery" -Llong //Input \n "string"')
-
-! With logical error flag
-tokens = shlex('whatever ',success=success)
-
-! With complete error flag
-tokens = shlex('whatever ',error)
-print *, 'error message=',error%string
-```
+Same as `split`, but returns `shlex_token` structures for each word.
 
 ---
 
-## Version 1.1.0 - `join_spaced` to combine spaced compiler flags
+## 📦 Feature Overview
 
-Starting with version **1.1.0**, a new high-level interface is available:
-
-```fortran
-tokens = split('gfortran -I /include -L /lib -lm', join_spaced=.true., success=success)
-```
-
-When the second argument (`join_spaced`) is `.true.`, `split` will:
-- combine spaced flags like `-I /path` into `-I/path`
-- work for any single-letter flags (e.g., `-I`, `-L`, `-D`) if the next token does *not* begin with `-`
-- still respect quotes and shell-like rules for escaping
-
-This is useful for parsing compiler and linker flags where `-I`, `-L`, etc. may be followed by a separate token due to quoting or formatting.
+### ✅ Basic Features
+- Handles escaping quotes (`"..."`) and non-escaping quotes (`'...'`)
+- Skips newline and carriage return characters
+- Returns an array of tokens or structured tokens
 
 ---
 
-### 🆕 Version 1.2.0 – Preserve enclosing quotes with `keep_quotes`
+## 🔧 Version 1.1.0 — `join_spaced` flag
 
-Starting with version **1.2.0**, you can enable optional preservation of quotes around quoted strings using the `keep_quotes` flag.
-
+Use `join_spaced=.true.` to automatically combine flags and paths like:
 
 ```fortran
-tokens = split('gfortran -I /include -L /lib -lm', join_spaced=.true., keep_quotes=.true., success=success)
+tokens = split('gfortran -I /include -L /lib', join_spaced=.true.)
+! Result: ["gfortran", "-I/include", "-L/lib"]
 ```
 
-#### Works with:
-- Escaping quotes (`"double quoted"`)
-- Non-escaping quotes (`'single quoted'`)
-- Both `split` and `shlex` interfaces
-
-#### Note
-- When provided, `join_spaced` and `keep_quotes` are both mandatory arguments.
-
-You can also use `keep_quotes` with `join_spaced=.true.` to both:
-- Combine flags like `-I /include` into `-I/include`
-- Preserve quotes around tokens
-
-This is especially helpful for tools that need to pass exact arguments to compilers or scripts without losing context from quoting.
+Works for any single-letter compiler flags (`-I`, `-L`, `-D`, etc.) where the path does not start with `-`.
 
 ---
 
-## License
+## 🔍 Version 1.2.0 — `keep_quotes` flag
 
-The source code in this repository is Licensed under MIT license (LICENSE-MIT or https://opensource.org/licenses/MIT).
+Use `keep_quotes=.true.` to retain original quoting:
 
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
+```fortran
+tokens = split('"quoted string" unquoted', keep_quotes=.true.)
+! Result: ['"quoted string"', 'unquoted']
+```
 
-## See also
+Note: if using `join_spaced`, you must also pass `keep_quotes` (both arguments required when either is set).
+
+---
+
+## 📜 License
+
+This project is licensed under the MIT License:  
+See `LICENSE-MIT` or <https://opensource.org/licenses/MIT>.
+
+By contributing, you agree that your contributions may be dual licensed under the MIT and Apache-2.0 licenses.
+
+---
+
+## 🔗 See also
 
 - [fortran-regex](https://github.com/perazz/fortran-regex)
-- [Golang shlex](https://github.com/google/shlex)
 - [Python shlex](https://docs.python.org/3/library/shlex.html)
+- [Python mslex](https://github.com/smoofra/mslex)
+- [Golang shlex](https://github.com/google/shlex)
 - [Rust shlex](https://crates.io/crates/shlex)
