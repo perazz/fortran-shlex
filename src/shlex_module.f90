@@ -91,8 +91,10 @@ module shlex_module
     character(kind=SCK,len=*), parameter :: COMMENT_CHARS = "#"
     character(kind=SCK,len=*), parameter :: CARET_CHAR    = "^"   
     
-    character(kind=SCK,len=*), parameter :: META_CHARS    = DOUBLE_QUOTE//'^&|<>()%!'
-    character(kind=SCK,len=*), parameter :: META_OR_SPACE = SPACE_CHARS//META_CHARS
+    character(kind=SCK,len=*), parameter :: META_INSIDE_QUOTES = DOUBLE_QUOTE//'%!'
+    character(kind=SCK,len=*), parameter :: META_CHARS         = META_INSIDE_QUOTES//'^&|<>()'
+    character(kind=SCK,len=*), parameter :: META_OR_SPACE      = SPACE_CHARS//META_CHARS
+    
     
 
     ! Token types
@@ -294,6 +296,7 @@ module shlex_module
         character(kind=SCK,len=:), allocatable :: list(:)
         
         logical :: cmd
+        type(shlex_token) :: caret_error
         character(kind=SCK,len=:), allocatable :: nocaret
         type(shlex_token), allocatable :: tokens(:)
         
@@ -301,10 +304,12 @@ module shlex_module
         if (present(like_cmd)) cmd = like_cmd
         
         if (cmd) then 
-            print *, pattern
-            nocaret = ms_strip_carets_like_cmd(pattern)
-            print *, 'nocaret=',nocaret
+            nocaret = ms_strip_carets_like_cmd(pattern,caret_error)            
             tokens = mslex(nocaret,error)
+            
+            ! Return the first error occurred
+            if (caret_error%type/=NO_ERROR) error = caret_error
+            
         else
             tokens = mslex(pattern,error)
         end if
@@ -1394,19 +1399,21 @@ module shlex_module
        
     end function ms_alternative_quote_for_cmd
     
-    pure function ms_strip_carets_like_cmd(s) result(unescaped)
+    function ms_strip_carets_like_cmd(s,error) result(unescaped)
         character(kind=SCK,len=*), intent(in), target :: s
-        character(kind=SCK,len=:), allocatable :: unescaped
+        character(len=:), allocatable :: unescaped
+        type(shlex_token), intent(out) :: error
 
         type(shlex_lexer) :: lex
         logical :: in_quote
         integer :: bpos, pos, length
         character(len=2*len(s)) :: buffer
         character :: c
-
+        
         associate(pos => lex%input_position, length => lex%input_length)
 
         call lex%new(LEXER_WINDOWS, s)
+        error = new_token(NO_ERROR,"SUCCESS")
         bpos = 0
         in_quote = .false.
 
@@ -1415,27 +1422,43 @@ module shlex_module
             c = s(pos:pos)
 
             if (c == DOUBLE_QUOTE) then
+                
                 in_quote = .not. in_quote
                 bpos = bpos + 1
                 buffer(bpos:bpos) = DOUBLE_QUOTE
 
             elseif (c == CARET_CHAR) then
                 if (in_quote) then
+                    ! Inside quotes: preserve the caret
                     bpos = bpos + 1
                     buffer(bpos:bpos) = c
                 else
-                    ! Outside quotes: consume next character if present
                     if (pos < length) then
                         pos = pos + 1
+                        c = s(pos:pos)
                         bpos = bpos + 1
-                        buffer(bpos:bpos) = s(pos:pos)
+                        buffer(bpos:bpos) = c
+
+                        ! Check if escaped character is ! or % (outside quotes)
+                        if (.not. in_quote .and. scan(c,META_INSIDE_QUOTES)>0) then
+                            error = new_token(SYNTAX_ERROR, "Unquoted CMD metacharacters in string: '"//s//"'")
+                            return
+                        end if
                     end if
-                    ! Else: caret at end -> discard
+                    ! Else: discard trailing caret
                 end if
 
             else
                 bpos = bpos + 1
                 buffer(bpos:bpos) = c
+
+                ! Check for unquoted metacharacters in raw text
+                if (.not. in_quote) then
+                    if (scan(c,META_INSIDE_QUOTES)>0) then
+                        error = new_token(SYNTAX_ERROR, "Unquoted CMD metacharacters in string: '"//s//"'")
+                        return
+                    end if
+                end if
             end if
         end do
 
@@ -1444,6 +1467,7 @@ module shlex_module
 
         endassociate
     end function ms_strip_carets_like_cmd
+
     
      
 end module shlex_module
