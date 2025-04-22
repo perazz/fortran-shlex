@@ -325,7 +325,7 @@ program shlex_tests
            call get_mslex_not_cmd_example(id,pattern,results)
         endif
         
-        success = mslex_quote(pattern,for_cmd=cmd)==results
+        success = ms_quote(pattern,for_cmd=cmd)==results
         if (.not.success) return
         
         tokens = ms_split(results, like_cmd=cmd, error=error)
