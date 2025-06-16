@@ -628,8 +628,6 @@ module shlex_module
                 
                 if (scan(s,SPACE_CHARS//DOUBLE_QUOTE)<=0) then 
                     
-                    ! for example the string Çx\!È can be quoted as Çx\^!È, but
-                    ! # _quote_for_cmd would quote it as Ç"x\\"^!È                    
                     alt = ms_alternative_quote_for_cmd(s)
                     
                     ! Use caret-escaped version if it's shorter
@@ -776,6 +774,7 @@ module shlex_module
     function parse_msvcrt_groups(groups) result(list)
         type(mslex_group), optional, intent(in) :: groups(:)
         type(shlex_token), allocatable :: list(:)
+        type(shlex_token) :: token
 
         character(kind=SCK,len=:), allocatable :: buffer
         integer :: i
@@ -798,7 +797,8 @@ module shlex_module
                     
                     ! End of quote-delimited group: emit buffer (even if "")
                     if (.not.allocated(buffer)) buffer = ""
-                    list = [list, new_token(TOKEN_WORD, buffer)]
+                    token = new_token(TOKEN_WORD, buffer)
+                    list = [list, token]
                     deallocate(buffer)
                     quote_mode = .false.
                 end if
@@ -819,13 +819,17 @@ module shlex_module
         end do group_loop
 
         ! Always emit buffer (even if it's "")
-        if (allocated(buffer)) list = [list, new_token(TOKEN_WORD, buffer)]
+        if (allocated(buffer)) then
+            token = new_token(TOKEN_WORD, buffer)
+            list = [list, token]
+        end if
         
     end function parse_msvcrt_groups
 
     function parse_ucrt_groups(groups) result(list)
         type(mslex_group), optional, intent(in) :: groups(:)
         type(shlex_token), allocatable :: list(:)
+        type(shlex_token) :: token
 
         character(kind=SCK,len=:), allocatable :: buffer
         integer :: i
@@ -847,7 +851,8 @@ module shlex_module
                 elseif (allocated(buffer)) then
                     if (.not.allocated(buffer)) buffer = ""
                     ! Emit current token
-                    list = [list, new_token(TOKEN_WORD, buffer)]
+                    token = new_token(TOKEN_WORD, buffer)
+                    list = [list, token]
                     deallocate(buffer)
                 end if
             end if
@@ -882,7 +887,10 @@ module shlex_module
 
         end do group_loop
 
-        if (allocated(buffer)) list = [list, new_token(TOKEN_WORD, buffer)]
+        if (allocated(buffer)) then
+            token = new_token(TOKEN_WORD, buffer)
+            list = [list, token]
+        end if
 
     end function parse_ucrt_groups
 
